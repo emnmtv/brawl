@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3rd Person Shooter Prototype</title>
+    <title>COMBAT OS</title>
     <link rel="stylesheet" href="style.css">
-    
+
     <script type="importmap">
         {
             "imports": {
@@ -16,26 +16,93 @@
     </script>
 </head>
 <body>
-    <div id="ui-layer">
-        <div id="hud">
-            <h2>COMBAT OS READY</h2>
-            <p>W/A/S/D: Move | SHIFT: Sprint | SPACE: Jump<br>MOUSE: Aim | LEFT CLICK: Fire<br>V: Toggle Noclip Camera</p>
+
+<!-- ═══════════════════════════════════════════════════
+     MAIN MENU
+═══════════════════════════════════════════════════ -->
+<div id="main-menu">
+
+    <!-- Animated scanline overlay -->
+    <div class="menu-scanlines"></div>
+
+    <!-- Logo / Title -->
+    <div class="menu-logo">
+        <div class="logo-ring"></div>
+        <h1 class="logo-title">COMBAT OS</h1>
+        <p class="logo-sub">3RD PERSON SHOOTER PROTOTYPE</p>
+        <div class="logo-divider"></div>
+    </div>
+
+    <!-- Lobby panel (default view) -->
+    <div id="menu-lobby" class="menu-panel">
+        <button id="btn-dev-mode" class="menu-btn">
+            <span class="btn-icon">⚙</span>
+            DEV MODE
+            <small>AI enemy · rifle tuner · noclip</small>
+        </button>
+        <button id="btn-pvp-mode" class="menu-btn pvp">
+            <span class="btn-icon">⚡</span>
+            PVP MODE
+            <small>Multiplayer · WebSocket</small>
+        </button>
+        <p class="menu-hint">Map: Halo 2 (halo2map.glb)</p>
+    </div>
+
+    <!-- PvP lobby panel -->
+    <div id="menu-pvp" class="menu-panel" style="display:none">
+        <h2 class="panel-title">PVP LOBBY</h2>
+
+        <label class="field-label">Server URL</label>
+        <input id="pvp-server-url" class="menu-input" type="text"
+               value="ws://localhost:8080"
+               placeholder="ws://your-server:8080">
+
+        <label class="field-label">Callsign</label>
+        <input id="pvp-name" class="menu-input" type="text"
+               value="SPARTAN" maxlength="16"
+               placeholder="Your callsign">
+
+        <div class="pvp-btn-row">
+            <button id="btn-pvp-back"    class="menu-btn small">← BACK</button>
+            <button id="btn-pvp-connect" class="menu-btn small pvp">CONNECT &amp; PLAY</button>
         </div>
-        
-        <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
+
+        <p class="menu-hint">
+            Start server: <code>npm install &amp;&amp; node server.js</code>
+        </p>
+    </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     CONNECTING OVERLAY
+═══════════════════════════════════════════════════ -->
+<div id="connecting-overlay" style="display:none">
+    <div class="spinner"></div>
+    <p id="connecting-msg">Connecting…</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     IN-GAME UI LAYER  (hidden until game starts)
+═══════════════════════════════════════════════════ -->
+<div id="ui-layer" style="display:none">
+
+    <!-- ── DEV HUD ── -->
+    <div id="dev-hud" style="display:none">
+        <div id="hud">
+            <h2>COMBAT OS · DEV</h2>
+            <p>W/A/S/D: Move &nbsp;|&nbsp; SHIFT: Sprint &nbsp;|&nbsp; SPACE: Jump<br>
+               MOUSE: Aim &nbsp;|&nbsp; LMB: Fire &nbsp;|&nbsp; V: Noclip</p>
+        </div>
+
+        <div id="ai-toggle-container" style="position:absolute; top:80px; left:20px; pointer-events:auto;">
+            <button id="toggle-ai-btn"     style="background:#ffaa00;color:black;border:none;padding:8px 15px;font-weight:bold;font-family:'Courier New';cursor:pointer;">AI: ON</button>
+            <button id="toggle-hitbox-btn" style="background:#00ffcc;color:black;border:none;padding:8px 15px;font-weight:bold;font-family:'Courier New';cursor:pointer;margin-left:10px;">View Hitbox</button>
+        </div>
 
         <div id="target-info">
             <h2>TARGET ACQUIRED</h2>
             <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill"></div></div>
-        </div>
-        <div id="player-info" style="position: absolute; bottom: 20px; right: 20px; color: #00ffcc; text-align: right; text-shadow: 0 0 5px #00ffcc;">
-            <h2>SYSTEM INTEGRITY</h2>
-            <div class="bar-bg"><div id="player-health-bar" class="bar-fill" style="background: #00ffcc;"></div></div>
-        </div>
-
-        <div id="ai-toggle-container" style="position: absolute; top: 80px; left: 20px; pointer-events: auto;">
-              <button id="toggle-ai-btn" style="background: #ffaa00; color: black; border: none; padding: 8px 15px; font-weight: bold; font-family: 'Courier New'; cursor: pointer;">AI: ON</button>
-              <button id="toggle-hitbox-btn" style="background: #00ffcc; color: black; border: none; padding: 8px 15px; font-weight: bold; font-family: 'Courier New'; cursor: pointer; margin-left: 10px;">View Hitbox</button>
         </div>
 
         <div id="animation-menu">
@@ -47,10 +114,10 @@
             </div>
         </div>
 
+        <!-- Rifle tuner (shown in noclip) -->
         <div id="rifle-tuner">
             <h3>🛠️ RIFLE TUNER</h3>
-            <p style="color: #aaa; margin-top: 0;">Press ESC to unlock mouse & drag sliders.</p>
-            
+            <p style="color:#aaa;margin-top:0;">Press ESC to unlock mouse &amp; drag sliders.</p>
             <div class="tuner-group">
                 <div class="tuner-row"><span>Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01"><input type="number" id="tune-scale-num" step="0.01"></div>
             </div>
@@ -64,15 +131,52 @@
                 <div class="tuner-row"><span>Rot Y</span><input type="range" id="tune-ry" min="-360" max="360" step="1"><input type="number" id="tune-ry-num" step="1"></div>
                 <div class="tuner-row"><span>Rot Z</span><input type="range" id="tune-rz" min="-180" max="180" step="1"><input type="number" id="tune-rz-num" step="1"></div>
             </div>
-            
-            <p style="color:#00ffcc; margin-bottom: 2px;">Copy this code into js/Config.js:</p>
+            <p style="color:#00ffcc;margin-bottom:2px;">Copy into js/Config.js:</p>
             <div id="tuner-code"></div>
         </div>
+    </div>
+    <!-- ── END DEV HUD ── -->
 
-        <div id="crosshair">+</div>
-        <div id="lock-hint">Click to lock mouse & start</div>
+    <!-- ── PVP HUD ── -->
+    <div id="pvp-hud" style="display:none">
+        <div id="hud">
+            <h2>COMBAT OS · PVP</h2>
+            <p>W/A/S/D: Move &nbsp;|&nbsp; SHIFT: Sprint &nbsp;|&nbsp; SPACE: Jump<br>
+               MOUSE: Aim &nbsp;|&nbsp; LMB: Fire</p>
+            <p id="pvp-id"  style="color:#ffaa00; margin-top:4px;"></p>
+            <p id="pvp-count" style="color:#00ffcc; margin-top:2px;">Online: 1</p>
+        </div>
+    </div>
+    <!-- ── END PVP HUD ── -->
+
+    <!-- Shared HUD elements -->
+    <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
+
+    <div id="player-info" style="position:absolute;bottom:20px;right:20px;color:#00ffcc;text-align:right;text-shadow:0 0 5px #00ffcc;">
+        <h2>SYSTEM INTEGRITY</h2>
+        <div class="bar-bg"><div id="player-health-bar" class="bar-fill" style="background:#00ffcc;"></div></div>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <div id="crosshair">+</div>
+    <div id="lock-hint">Click to lock mouse &amp; start</div>
+
+    <!-- Network join/leave notification -->
+    <div id="net-alert"></div>
+
+    <!-- Map loading status -->
+    <div id="loading-status"></div>
+
+    <!-- Mobile Controls Overlay -->
+    <div id="mobile-controls" style="display:none; position:absolute; bottom:30px; left:50%; transform:translateX(-50%); z-index:1000;">
+        <button id="btn-move-left"   class="mobile-btn">◀</button>
+        <button id="btn-jump"        class="mobile-btn">⤴</button>
+        <button id="btn-shoot"       class="mobile-btn">🔫</button>
+        <button id="btn-move-right"  class="mobile-btn">▶</button>
+    </div>
+
+</div>
+<!-- ── END UI LAYER ── -->
+
+<script type="module" src="js/main.js"></script>
 </body>
 </html>

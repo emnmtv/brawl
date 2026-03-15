@@ -55,6 +55,17 @@ update(dt, enemies, player) {
             beam.position.addScaledVector(beam.userData.direction, moveDist);
             beam.userData.distance += moveDist;
 
+            // isRemote beams are visual-only (remote player bullets rendered locally).
+            // Damage is handled server-side — skip ALL collision for these.
+            if (beam.userData.isRemote) {
+                if (beam.userData.distance > 300) {
+                    beam.visible = false;
+                    beam.userData.active = false;
+                    beam.userData.isRemote = false;
+                }
+                return;
+            }
+
             if (beam.userData.isEnemy) {
                 // Check if player AND their boundingBox are ready
                 if (player.health && !player.health.isDead && player.boundingBox) {
@@ -122,7 +133,7 @@ export class Enemy {
             model.traverse((child) => {
                 if (child.isMesh) {
                     child.frustumCulled = false;
-                    child.castShadow = true;
+                    // child.castShadow = true;
                 }
                 if (child.name === 'bip_hand_R') this.handBone = child;
             });

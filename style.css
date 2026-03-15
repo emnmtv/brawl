@@ -1,47 +1,306 @@
+/* ═══════════════════════════════════════════════════
+   BASE
+═══════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; }
 
-        body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Courier New', Courier, monospace; }
-        canvas { display: block; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        #hud { position: absolute; top: 20px; left: 20px; color: #00ffcc; text-shadow: 0 0 5px #00ffcc; }
-        #target-info { position: absolute; top: 20px; right: 20px; color: #ff3333; text-align: right; text-shadow: 0 0 5px #ff3333; }
-        .bar-bg { width: 200px; height: 15px; background: rgba(255,255,255,0.2); border: 1px solid currentColor; margin-top: 5px; }
-        .bar-fill { height: 100%; width: 100%; background: currentColor; transition: width 0.1s; }
-        #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: rgba(0, 255, 204, 0.8); font-size: 24px; font-weight: bold; text-shadow: 0 0 5px #00ffcc; }
+body {
+    margin: 0; overflow: hidden;
+    background-color: #060a0f;
+    font-family: 'Courier New', Courier, monospace;
+}
+canvas { display: block; }
 
-        #noclip-alert { position: absolute; top: 125px; left: 20px; color: #ffaa00; font-weight: bold; font-size: 18px; text-shadow: 0 0 5px #ffaa00; display: none; }
+/* ═══════════════════════════════════════════════════
+   MAIN MENU
+═══════════════════════════════════════════════════ */
+#main-menu {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 30%, #0a1a24 0%, #060a0f 70%);
+    overflow: hidden;
+}
 
-        /* Animation Slot Menu */
-        #animation-menu {
-            position: absolute; bottom: 20px; left: 20px; pointer-events: auto;
-            display: none; background: rgba(0,0,0,0.85); padding: 12px;
-            border: 1px solid #00ffcc; color: white; min-width: 320px; max-width: 420px;
-        }
-        #animation-menu h3 { margin: 0 0 8px; color: #00ffcc; font-size: 13px; }
-        .slot-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
-        .slot-label { width: 110px; color: #aaa; }
-        .slot-row select { background: #222; color: #fff; border: 1px solid #555; padding: 2px 4px; font-family: 'Courier New'; font-size: 12px; flex: 1; }
-        #detected-anims { margin-top: 10px; border-top: 1px solid #333; padding-top: 8px; }
-        #detected-anims p { margin: 0 0 6px; color: #888; font-size: 11px; }
-        #animation-buttons button {
-            background: #00ffcc; color: black; border: none; padding: 4px 8px; margin: 2px; cursor: pointer;
-            font-family: 'Courier New'; font-weight: bold; font-size: 11px;
-        }
-        #animation-buttons button:hover { background: white; }
-        
-        #lock-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-            color: #fff; background: rgba(0,0,0,0.6); padding: 12px 20px;
-            text-align: center; pointer-events: none; font-size: 14px; }
+/* Scanline texture */
+.menu-scanlines {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px, transparent 3px,
+        rgba(0,255,204,0.015) 3px, rgba(0,255,204,0.015) 4px
+    );
+    animation: scanScroll 8s linear infinite;
+}
+@keyframes scanScroll { from { background-position: 0 0; } to { background-position: 0 200px; } }
 
-        /* UPGRADED RIFLE TUNER DEV TOOL */
-        #rifle-tuner {
-            position: absolute; top: 20px; right: 20px; width: 360px; pointer-events: auto;
-            background: rgba(0,0,0,0.85); border: 1px solid #ffaa00; color: white;
-            padding: 15px; font-family: 'Courier New', Courier, monospace; font-size: 12px; display: none;
-        }
-        #rifle-tuner h3 { margin: 0 0 5px 0; color: #ffaa00; }
-        .tuner-group { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #444; }
-        .tuner-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-        .tuner-row span { width: 90px; }
-        .tuner-row input[type="range"] { flex: 1; margin: 0 10px; }
-        .tuner-row input[type="number"] { width: 60px; background: #222; color: #00ffcc; border: 1px solid #555; padding: 2px; font-family: 'Courier New'; text-align: right; }
-        #tuner-code { background: #111; border: 1px solid #555; padding: 8px; color: #fff; white-space: pre-wrap; user-select: all; font-size: 11px; margin-top: 5px;}
+/* Logo block */
+.menu-logo {
+    position: relative; text-align: center; margin-bottom: 40px;
+}
+.logo-ring {
+    width: 90px; height: 90px; border-radius: 50%;
+    border: 3px solid #00ffcc;
+    box-shadow: 0 0 20px #00ffcc, inset 0 0 20px rgba(0,255,204,0.1);
+    margin: 0 auto 16px;
+    animation: ringPulse 3s ease-in-out infinite;
+}
+@keyframes ringPulse {
+    0%,100% { box-shadow: 0 0 20px #00ffcc, inset 0 0 20px rgba(0,255,204,0.1); }
+    50%      { box-shadow: 0 0 40px #00ffcc, inset 0 0 30px rgba(0,255,204,0.2); }
+}
+.logo-title {
+    margin: 0;
+    font-size: clamp(36px, 6vw, 64px);
+    font-weight: 900; letter-spacing: 12px;
+    color: #00ffcc;
+    text-shadow: 0 0 20px #00ffcc, 0 0 60px rgba(0,255,204,0.3);
+    animation: titleFlicker 6s ease-in-out infinite;
+}
+@keyframes titleFlicker {
+    0%,95%,100% { opacity: 1; }
+    96% { opacity: 0.85; }
+    97% { opacity: 1; }
+}
+.logo-sub {
+    margin: 6px 0 12px;
+    font-size: 12px; letter-spacing: 5px;
+    color: rgba(0,255,204,0.5);
+    text-transform: uppercase;
+}
+.logo-divider {
+    width: 200px; height: 1px; margin: 0 auto;
+    background: linear-gradient(to right, transparent, #00ffcc, transparent);
+}
+
+/* Menu panel */
+.menu-panel {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 14px;
+    width: min(90vw, 400px);
+}
+.panel-title {
+    margin: 0 0 4px;
+    font-size: 18px; letter-spacing: 6px;
+    color: #00ffcc;
+}
+
+/* Menu buttons */
+.menu-btn {
+    position: relative; width: 100%;
+    padding: 16px 24px;
+    background: transparent;
+    border: 1px solid #00ffcc;
+    color: #00ffcc;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 18px; font-weight: 700;
+    letter-spacing: 4px;
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    overflow: hidden;
+}
+.menu-btn small {
+    display: block;
+    font-size: 10px; font-weight: 400;
+    letter-spacing: 2px; color: rgba(0,255,204,0.6);
+}
+.menu-btn .btn-icon { font-size: 22px; margin-bottom: 2px; }
+
+.menu-btn::before {
+    content: '';
+    position: absolute; top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: rgba(0,255,204,0.08);
+    transition: left 0.25s;
+}
+.menu-btn:hover::before { left: 0; }
+.menu-btn:hover {
+    box-shadow: 0 0 20px rgba(0,255,204,0.4), inset 0 0 10px rgba(0,255,204,0.05);
+    transform: translateY(-2px);
+}
+.menu-btn:active { transform: translateY(0); }
+
+.menu-btn.pvp {
+    border-color: #ff4400; color: #ff4400;
+}
+.menu-btn.pvp small { color: rgba(255,68,0,0.6); }
+.menu-btn.pvp::before { background: rgba(255,68,0,0.08); }
+.menu-btn.pvp:hover { box-shadow: 0 0 20px rgba(255,68,0,0.4), inset 0 0 10px rgba(255,68,0,0.05); }
+
+.menu-btn.small { padding: 10px 18px; font-size: 14px; flex: 1; }
+
+.pvp-btn-row { display: flex; gap: 10px; width: 100%; }
+
+/* Form fields */
+.field-label {
+    align-self: flex-start;
+    font-size: 11px; letter-spacing: 3px;
+    color: rgba(0,255,204,0.5);
+    margin-bottom: -8px;
+}
+.menu-input {
+    width: 100%; padding: 10px 14px;
+    background: rgba(0,255,204,0.05);
+    border: 1px solid rgba(0,255,204,0.3);
+    color: #00ffcc;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.menu-input:focus { border-color: #00ffcc; }
+
+.menu-hint {
+    margin: 4px 0 0;
+    font-size: 11px; color: rgba(255,255,255,0.3);
+    text-align: center;
+}
+.menu-hint code {
+    color: rgba(0,255,204,0.5);
+    font-family: 'Courier New', Courier, monospace;
+}
+
+/* ═══════════════════════════════════════════════════
+   CONNECTING OVERLAY
+═══════════════════════════════════════════════════ */
+#connecting-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(6, 10, 15, 0.93);
+    color: #00ffcc; font-size: 18px; letter-spacing: 4px;
+    gap: 20px;
+}
+.spinner {
+    width: 48px; height: 48px;
+    border: 3px solid rgba(0,255,204,0.2);
+    border-top-color: #00ffcc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════
+   IN-GAME UI LAYER
+═══════════════════════════════════════════════════ */
+#ui-layer {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+}
+
+#hud {
+    position: absolute; top: 20px; left: 20px;
+    color: #00ffcc; text-shadow: 0 0 5px #00ffcc;
+}
+
+#target-info {
+    position: absolute; top: 20px; right: 20px;
+    color: #ff3333; text-align: right;
+    text-shadow: 0 0 5px #ff3333;
+}
+
+.bar-bg {
+    width: 200px; height: 15px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid currentColor;
+    margin-top: 5px;
+}
+.bar-fill { height: 100%; width: 100%; background: currentColor; transition: width 0.1s; }
+
+#crosshair {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(0,255,204,0.8);
+    font-size: 24px; font-weight: bold;
+    text-shadow: 0 0 5px #00ffcc;
+    pointer-events: none;
+}
+
+#noclip-alert {
+    position: absolute; top: 125px; left: 20px;
+    color: #ffaa00; font-weight: bold; font-size: 18px;
+    text-shadow: 0 0 5px #ffaa00; display: none;
+}
+
+/* Network join/leave alert */
+#net-alert {
+    position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+    color: #ffaa00; font-size: 14px; letter-spacing: 2px;
+    text-shadow: 0 0 6px #ffaa00;
+    opacity: 0; transition: opacity 0.5s;
+    pointer-events: none;
+}
+
+/* Map load status */
+#loading-status {
+    position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+    color: rgba(0,255,204,0.6); font-size: 13px; letter-spacing: 3px;
+    pointer-events: none;
+}
+
+/* Lock hint */
+#lock-hint {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff; background: rgba(0,0,0,0.6);
+    padding: 12px 20px; text-align: center;
+    pointer-events: none; font-size: 14px;
+}
+
+/* ═══════════════════════════════════════════════════
+   ANIMATION SLOT MENU
+═══════════════════════════════════════════════════ */
+#animation-menu {
+    position: absolute; bottom: 20px; left: 20px;
+    pointer-events: auto; display: none;
+    background: rgba(0,0,0,0.85);
+    padding: 12px; border: 1px solid #00ffcc;
+    color: white; min-width: 320px; max-width: 420px;
+}
+#animation-menu h3 { margin: 0 0 8px; color: #00ffcc; font-size: 13px; }
+.slot-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.slot-label { width: 110px; color: #aaa; }
+.slot-row select {
+    background: #222; color: #fff;
+    border: 1px solid #555; padding: 2px 4px;
+    font-family: 'Courier New'; font-size: 12px; flex: 1;
+}
+#detected-anims { margin-top: 10px; border-top: 1px solid #333; padding-top: 8px; }
+#detected-anims p { margin: 0 0 6px; color: #888; font-size: 11px; }
+#animation-buttons button {
+    background: #00ffcc; color: black; border: none;
+    padding: 4px 8px; margin: 2px; cursor: pointer;
+    font-family: 'Courier New'; font-weight: bold; font-size: 11px;
+}
+#animation-buttons button:hover { background: white; }
+
+/* ═══════════════════════════════════════════════════
+   RIFLE TUNER
+═══════════════════════════════════════════════════ */
+#rifle-tuner {
+    position: absolute; top: 20px; right: 20px; width: 360px;
+    pointer-events: auto;
+    background: rgba(0,0,0,0.85);
+    border: 1px solid #ffaa00; color: white;
+    padding: 15px;
+    font-family: 'Courier New', Courier, monospace; font-size: 12px;
+    display: none;
+}
+#rifle-tuner h3 { margin: 0 0 5px; color: #ffaa00; }
+.tuner-group { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #444; }
+.tuner-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.tuner-row span { width: 90px; }
+.tuner-row input[type="range"] { flex: 1; margin: 0 10px; }
+.tuner-row input[type="number"] {
+    width: 60px; background: #222; color: #00ffcc;
+    border: 1px solid #555; padding: 2px;
+    font-family: 'Courier New'; text-align: right;
+}
+#tuner-code {
+    background: #111; border: 1px solid #555;
+    padding: 8px; color: #fff;
+    white-space: pre-wrap; user-select: all;
+    font-size: 11px; margin-top: 5px;
+}
