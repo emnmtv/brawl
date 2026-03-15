@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3rd Person Shooter Prototype</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="ui-layer">
+        <div id="hud">
+            <h2>COMBAT OS READY</h2>
+            <p>W/A/S/D: Move | SHIFT: Sprint | SPACE: Jump<br>MOUSE: Aim | LEFT CLICK: Fire<br>V: Toggle Noclip Camera</p>
+        </div>
+        
+        <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
+
+        <div id="target-info">
+            <h2>TARGET ACQUIRED</h2>
+            <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill"></div></div>
+        </div>
+        <div id="player-info" style="position: absolute; bottom: 20px; right: 20px; color: #00ffcc; text-align: right; text-shadow: 0 0 5px #00ffcc;">
+            <h2>SYSTEM INTEGRITY</h2>
+            <div class="bar-bg"><div id="player-health-bar" class="bar-fill" style="background: #00ffcc;"></div></div>
+        </div>
+
+        <div id="ai-toggle-container" style="position: absolute; top: 80px; left: 20px; pointer-events: auto;">
+              <button id="toggle-ai-btn" style="background: #ffaa00; color: black; border: none; padding: 8px 15px; font-weight: bold; font-family: 'Courier New'; cursor: pointer;">AI: ON</button>
+              <button id="toggle-hitbox-btn" style="background: #00ffcc; color: black; border: none; padding: 8px 15px; font-weight: bold; font-family: 'Courier New'; cursor: pointer; margin-left: 10px;">View Hitbox</button>
+        </div>
+
+        <div id="animation-menu">
+            <h3>ANIMATION SLOTS</h3>
+            <div id="slot-rows"></div>
+            <div id="detected-anims">
+                <p>Play raw clip:</p>
+                <div id="animation-buttons"></div>
+            </div>
+        </div>
+
+        <div id="rifle-tuner">
+            <h3>🛠️ RIFLE TUNER</h3>
+            <p style="color: #aaa; margin-top: 0;">Press ESC to unlock mouse & drag sliders.</p>
+            
+            <div class="tuner-group">
+                <div class="tuner-row"><span>Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01"><input type="number" id="tune-scale-num" step="0.01"></div>
+            </div>
+            <div class="tuner-group">
+                <div class="tuner-row"><span>Pos X</span><input type="range" id="tune-px" min="-3" max="3" step="0.01"><input type="number" id="tune-px-num" step="0.01"></div>
+                <div class="tuner-row"><span>Pos Y</span><input type="range" id="tune-py" min="-3" max="3" step="0.01"><input type="number" id="tune-py-num" step="0.01"></div>
+                <div class="tuner-row"><span>Pos Z</span><input type="range" id="tune-pz" min="-3" max="3" step="0.01"><input type="number" id="tune-pz-num" step="0.01"></div>
+            </div>
+            <div class="tuner-group">
+                <div class="tuner-row"><span>Rot X</span><input type="range" id="tune-rx" min="-180" max="180" step="1"><input type="number" id="tune-rx-num" step="1"></div>
+                <div class="tuner-row"><span>Rot Y</span><input type="range" id="tune-ry" min="-360" max="360" step="1"><input type="number" id="tune-ry-num" step="1"></div>
+                <div class="tuner-row"><span>Rot Z</span><input type="range" id="tune-rz" min="-180" max="180" step="1"><input type="number" id="tune-rz-num" step="1"></div>
+            </div>
+            
+            <p style="color:#00ffcc; margin-bottom: 2px;">Copy this code into js/Config.js:</p>
+            <div id="tuner-code"></div>
+        </div>
+
+        <div id="crosshair">+</div>
+        <div id="lock-hint">Click to lock mouse & start</div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
