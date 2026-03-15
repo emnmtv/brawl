@@ -52,13 +52,7 @@ class RemotePlayer {
             model.traverse(child => {
                 if (child.isMesh) {
                     child.frustumCulled = false;
-                    child.material = new THREE.MeshStandardMaterial({
-                        color: 0xcc4400,
-                        emissive: 0x220800,
-                        metalness: 0.6,
-                        roughness: 0.4,
-                        skinning: true,
-                    });
+                    // Do not override material; keep original model textures
                 }
             });
             this.mesh.remove(this.capsule);
@@ -146,15 +140,25 @@ class RemotePlayer {
     setAudioListener(listener) {
         this._audioListener = listener;
         this._gunSound = new THREE.PositionalAudio(listener);
-        // Load gun sound
-        const loader = new THREE.AudioLoader();
-        loader.load('sound_effects/gun_fire.mp3', (buffer) => {
-            this._gunSound.setBuffer(buffer);
+        // Use shared static buffer if available
+        if (RemotePlayer._gunFireBuffer) {
+            this._gunSound.setBuffer(RemotePlayer._gunFireBuffer);
             this._gunSound.setRefDistance(30);
             this._gunSound.setVolume(0.5);
             this._gunSound.setLoop(false);
-        });
-        this.mesh.add(this._gunSound);
+            this.mesh.add(this._gunSound);
+        } else {
+            // Load once and share
+            const loader = new THREE.AudioLoader();
+            loader.load('sound_effects/gun_fire.mp3', (buffer) => {
+                RemotePlayer._gunFireBuffer = buffer;
+                this._gunSound.setBuffer(buffer);
+                this._gunSound.setRefDistance(30);
+                this._gunSound.setVolume(0.5);
+                this._gunSound.setLoop(false);
+                this.mesh.add(this._gunSound);
+            });
+        }
     }
 
     update(dt) {
@@ -297,6 +301,8 @@ export class NetworkManager {
                 try {
                     const msg = JSON.parse(event.data);
                     this._handleMessage(msg, resolve);
+                    // After handling, ensure all remote players have correct references
+                    this._updateRemoteReferences();
                 } catch (e) { /* ignore */ }
             };
 
@@ -309,6 +315,13 @@ export class NetworkManager {
                 this.connected = false;
                 console.warn('[NET] Disconnected from server');
             };
+        });
+    }
+    _updateRemoteReferences() {
+        // Ensure all remote players have correct beamPool and audioListener
+        this.remotePlayers.forEach(rp => {
+            rp.beamPool = this.beamPool;
+            if (this.audioListener) rp.setAudioListener(this.audioListener);
         });
     }
 
