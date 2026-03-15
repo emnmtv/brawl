@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { CONFIG } from './Config.js';
 
 export class AudioManager {
-// ... rest of the code
     constructor(camera) {
         this.listener = new THREE.AudioListener();
         camera.add(this.listener);
@@ -10,48 +9,31 @@ export class AudioManager {
 
         this.gunSound = new THREE.Audio(this.listener);
         this.stepSound = new THREE.Audio(this.listener);
+        this.meleeSound = new THREE.Audio(this.listener); // Added melee
 
         this.loadSounds();
     }
 
     loadSounds() {
-        this.audioLoader.load('sound_effects/gun_fire.mp3', (buffer) => {
-            this.gunSound.setBuffer(buffer);
-            this.gunSound.setVolume(0.4);
-        });
-        this.audioLoader.load('sound_effects/robot_step.mp3', (buffer) => {
-            this.stepSound.setBuffer(buffer);
-            this.stepSound.setVolume(0.2);
-        });
+        this.audioLoader.load('sound_effects/gun_fire.mp3', (b) => { this.gunSound.setBuffer(b); this.gunSound.setVolume(0.4); });
+        this.audioLoader.load('sound_effects/robot_step.mp3', (b) => { this.stepSound.setBuffer(b); this.stepSound.setVolume(0.2); });
+        
+        // Load a swoosh sound for lightsaber (or use procedural if preferred)
+        this.audioLoader.load('sound_effects/swoosh.mp3', (b) => { this.meleeSound.setBuffer(b); this.meleeSound.setVolume(0.6); });
     }
 
-    resumeContext() {
-        if (this.listener.context.state === 'suspended') {
-            this.listener.context.resume();
-        }
-    }
+    resumeContext() { if (this.listener.context.state === 'suspended') this.listener.context.resume(); }
 
-    playGunfire() {
-        if (!this.gunSound.isPlaying) {
-            this.gunSound.offset = CONFIG.AUDIO.GUN_START;
-            this.gunSound.setLoop(true); 
-            this.gunSound.play();
-        }
-    }
+    playGunfire() { if (!this.gunSound.isPlaying) { this.gunSound.offset = CONFIG.AUDIO.GUN_START; this.gunSound.setLoop(true); this.gunSound.play(); } }
+    stopGunfire() { if (this.gunSound.isPlaying) this.gunSound.stop(); }
 
-    stopGunfire() {
-        if (this.gunSound.isPlaying) this.gunSound.stop();
-    }
+    playMeleeSwoosh() { if (this.meleeSound.buffer) { if (this.meleeSound.isPlaying) this.meleeSound.stop(); this.meleeSound.play(); } }
 
     playFootstep() {
         if (this.stepSound.isPlaying) this.stepSound.stop();
-        this.stepSound.offset = CONFIG.AUDIO.STEP_START;
-        this.stepSound.play();
-        
+        this.stepSound.offset = CONFIG.AUDIO.STEP_START; this.stepSound.play();
         clearTimeout(this.stepSound.stopTimer); 
-        this.stepSound.stopTimer = setTimeout(() => {
-            if (this.stepSound.isPlaying) this.stepSound.stop();
-        }, CONFIG.AUDIO.STEP_SNIPPET * 1000);
+        this.stepSound.stopTimer = setTimeout(() => { if (this.stepSound.isPlaying) this.stepSound.stop(); }, CONFIG.AUDIO.STEP_SNIPPET * 1000);
     }
 
     stopAll() {

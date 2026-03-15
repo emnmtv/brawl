@@ -7,12 +7,16 @@ export class HealthComponent {
         this.currentHealth = maxHealth;
         this.uiElement = document.getElementById(uiElementId);
         this.isDead = false;
+        this.onDamage = null; // callback: (amount, sourcePos?) => void
     }
-    takeDamage(amount) {
+
+    takeDamage(amount, sourcePos = null) {
         if (this.isDead) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) { this.currentHealth = 0; this.isDead = true; }
         if (this.uiElement) this.uiElement.style.width = (this.currentHealth / this.maxHealth * 100) + '%';
+        // Fire damage callback so main.js can show the indicator
+        if (this.onDamage) this.onDamage(amount, sourcePos);
     }
 }
 
@@ -21,33 +25,42 @@ export class BeamPool {
         this.pool = [];
         const geometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 8);
         geometry.rotateX(Math.PI / 2);
-        
+
         for (let i = 0; i < size; i++) {
             const material = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
             const beam = new THREE.Mesh(geometry, material);
             beam.visible = false;
-            beam.userData = { active: false, speed: 100, distance: 0, isEnemy: false, direction: new THREE.Vector3() };
+            beam.userData = {
+                active: false, speed: 100, distance: 0,
+                isEnemy: false, isRemote: false,
+                sourcePos: null,               // set by Enemy so player.health.takeDamage gets direction
+                direction: new THREE.Vector3()
+            };
             scene.add(beam);
             this.pool.push(beam);
         }
     }
 
+    // Returns the beam so callers can tag userData (isRemote, sourcePos, etc.)
     fire(position, direction, isEnemy = false) {
         const beam = this.pool.find(b => !b.userData.active);
-        if (beam) {
-            beam.position.copy(position);
-            const lookTarget = position.clone().add(direction);
-            beam.lookAt(lookTarget);
-            beam.userData.direction.copy(direction).normalize();
-            beam.visible = true;
-            beam.userData.active = true;
-            beam.userData.distance = 0;
-            beam.userData.isEnemy = isEnemy;
-            beam.material.color.setHex(isEnemy ? 0xff3300 : 0x00ffcc);
-        }
+        if (!beam) return null;
+
+        beam.position.copy(position);
+        beam.lookAt(position.clone().add(direction));
+        beam.userData.direction.copy(direction).normalize();
+        beam.visible = true;
+        beam.userData.active = true;
+        beam.userData.distance = 0;
+        beam.userData.isEnemy = isEnemy;
+        beam.userData.isRemote = false;   // reset on every reuse
+        beam.userData.sourcePos = null;   // reset on every reuse
+        beam.material.color.setHex(isEnemy ? 0xff3300 : 0x00ffcc);
+
+        return beam;
     }
 
-update(dt, enemies, player) {
+    update(dt, enemies, player) {
         this.pool.forEach(beam => {
             if (!beam.userData.active) return;
 
@@ -55,8 +68,7 @@ update(dt, enemies, player) {
             beam.position.addScaledVector(beam.userData.direction, moveDist);
             beam.userData.distance += moveDist;
 
-            // isRemote beams are visual-only (remote player bullets rendered locally).
-            // Damage is handled server-side — skip ALL collision for these.
+            // Remote beams are visual-only — all damage handled server-side
             if (beam.userData.isRemote) {
                 if (beam.userData.distance > 300) {
                     beam.visible = false;
@@ -67,24 +79,17 @@ update(dt, enemies, player) {
             }
 
             if (beam.userData.isEnemy) {
-                // Check if player AND their boundingBox are ready
                 if (player.health && !player.health.isDead && player.boundingBox) {
-                    
-                    // DELETED THE setFromObject LINE HERE!
-                    
                     if (player.boundingBox.containsPoint(beam.position)) {
-                        player.health.takeDamage(10);
+                        // sourcePos passed through so the damage indicator knows direction
+                        player.health.takeDamage(10, beam.userData.sourcePos || null);
                         beam.visible = false;
                         beam.userData.active = false;
                     }
                 }
             } else {
                 enemies.forEach(enemy => {
-                    // Check if enemy AND their boundingBox are ready
                     if (!enemy.health.isDead && enemy.boundingBox) {
-                        
-                        // DELETED THE setFromObject LINE HERE!
-                        
                         if (enemy.boundingBox.containsPoint(beam.position)) {
                             enemy.health.takeDamage(20);
                             beam.visible = false;
@@ -100,7 +105,7 @@ update(dt, enemies, player) {
             }
         });
     }
-    
+
     deactivateBeam(beam) {
         beam.visible = false;
         beam.userData.active = false;
@@ -114,8 +119,8 @@ export class Enemy {
         scene.add(this.mesh);
 
         this.health = new HealthComponent(100, 'enemy-health-bar');
-        this.boundingBox = new THREE.Box3(); // Initialize Box
-        
+        this.boundingBox = new THREE.Box3();
+
         this.speed = 10;
         this.attackRange = 80;
         this.fireRate = 0.6;
@@ -126,15 +131,11 @@ export class Enemy {
         this.actions = {};
         this.activeAction = null;
 
-        const loader = new GLTFLoader();
-        loader.load(modelUrl, (gltf) => {
+        new GLTFLoader().load(modelUrl, (gltf) => {
             const model = gltf.scene;
             model.scale.set(10, 10, 10);
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    child.frustumCulled = false;
-                    // child.castShadow = true;
-                }
+            model.traverse(child => {
+                if (child.isMesh) child.frustumCulled = false;
                 if (child.name === 'bip_hand_R') this.handBone = child;
             });
             this.mesh.add(model);
@@ -152,7 +153,7 @@ export class Enemy {
             this.handBone.getWorldPosition(pos);
             return { position: pos };
         }
-        const spawnOffset = new THREE.Vector3(0, 10, 5); 
+        const spawnOffset = new THREE.Vector3(0, 10, 5);
         return { position: spawnOffset.applyMatrix4(this.mesh.matrixWorld) };
     }
 
@@ -168,17 +169,16 @@ export class Enemy {
         if (this.health.isDead) {
             if (this.mesh.visible) {
                 this.mesh.visible = false;
-                document.getElementById('target-info').style.display = 'none';
+                const ti = document.getElementById('target-info');
+                if (ti) ti.style.display = 'none';
             }
             return;
         }
-        
-        // Update Hitbox once per frame
+
         if (this.boundingBox) {
             const center = this.mesh.position.clone();
-            center.y += 1; // Center hitbox slightly above feet
-            const size = new THREE.Vector3(6, 12, 6); // Width, Height, Depth (covers feet to head)
-            this.boundingBox.setFromCenterAndSize(center, size);
+            center.y += 1;
+            this.boundingBox.setFromCenterAndSize(center, new THREE.Vector3(6, 12, 6));
         }
         if (!this.mixer) return;
 
@@ -193,9 +193,8 @@ export class Enemy {
         this.mesh.lookAt(player.mesh.position.x, this.mesh.position.y, player.mesh.position.z);
 
         if (distToPlayer > this.attackRange) {
-            this.mesh.translateZ(this.speed * dt); 
-            const moveAnim = this.actions['run_forward'] ? 'run_forward' : 'walk';
-            this.playAnim(moveAnim || 'idle'); 
+            this.mesh.translateZ(this.speed * dt);
+            this.playAnim(this.actions['run_forward'] ? 'run_forward' : 'idle');
         } else {
             const attackAnim = this.actions['shoot_idle'] ? 'shoot_idle' : (this.actions['shoot'] ? 'shoot' : 'idle');
             this.playAnim(attackAnim);
@@ -205,7 +204,10 @@ export class Enemy {
                 const { position: spawnPos } = this.getGunSpawnTransform();
                 const aimTarget = player.mesh.position.clone().add(new THREE.Vector3(0, 5, 0));
                 const aimDir = new THREE.Vector3().subVectors(aimTarget, spawnPos).normalize();
-                beamPool.fire(spawnPos, aimDir, true);
+                const beam = beamPool.fire(spawnPos, aimDir, true);
+                // Tag the beam with this enemy's world position so BeamPool
+                // can pass it to player.health.takeDamage as sourcePos
+                if (beam) beam.userData.sourcePos = this.mesh.position.clone();
             }
         }
     }
