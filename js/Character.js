@@ -97,7 +97,14 @@ export class Character {
     update(dt, clock, inputManager, audioManager, dependencies) {
         if (this.health.isDead) { audioManager.stopGunfire(); audioManager.stopAll(); return; }
 
+        // Re-read physics values from the live config each frame
+        // (entry.physics is mutated directly by the physics tuner)
         const sc = this.sizeConfig;
+        this.baseWalkSpeed      = sc.walkSpeed;
+        this.runSpeedMultiplier = sc.runMultiplier;
+        this.gravity            = sc.gravity;
+        this.jumpStrength       = sc.jumpStrength;
+        this.stepRate           = sc.stepRate;
         let isMoving = false;
         const { beamPool, enemies, network } = dependencies;
         const input    = inputManager.keys;
@@ -124,7 +131,11 @@ export class Character {
 
         const canMove = dir => {
             if (!this._collisionMeshes.length) return true;
-            for (const h of sc.wallRayHeights) {
+            // Guard: ensure wallRayHeights is always iterable even on partial physics blocks
+            const rayHeights = Array.isArray(sc.wallRayHeights)
+                ? sc.wallRayHeights
+                : [sc.height * 0.083, sc.height * 0.417, sc.height * 0.75];
+            for (const h of rayHeights) {
                 this._wallRay.set(new THREE.Vector3(this.mesh.position.x, this.mesh.position.y + h, this.mesh.position.z), dir);
                 this._wallRay.far = sc.width * 0.6;
                 if (this._wallRay.intersectObjects(this._collisionMeshes, false).length > 0) return false;

@@ -1,41 +1,31 @@
 /**
- * CONFIG — Global defaults & shared constants
+ * CONFIG
  *
- * WEAPON_BONE and SWING_BONES use LOGICAL bone names resolved at runtime
- * via getBoneName(modelId, logicalName) in ModelRegistry.
- *
- * SCALE / POS / ROT / DAMAGE / FIRE_RATE are now per-model and live in
- * ModelRegistry weapons{} blocks.  The values here are the FALLBACK DEFAULTS
- * used by getWeaponConfig() for any model that doesn't specify its own.
- * Per-model values always win — these are never read directly by gameplay code.
+ * WEAPON_BONE and SWING_BONES use LOGICAL bone names (e.g. 'hand_R').
+ * Character.js calls getBoneName(modelId, logicalName) at runtime to
+ * get the real bone name for whatever model is loaded.
+ * This means the same Config works for every model in the registry.
  */
 export const CONFIG = {
     WEAPONS: {
         GUN: {
-            // ── Shared (same GLB for all models) ──
             MODEL:       'models/battle_rifle.glb',
-            WEAPON_BONE: 'hand_R',          // logical bone key → resolved per-model
-
-            // ── Fallback defaults (per-model weapons{} overrides these) ──
-            SCALE:     0.340,
-            POS:       [-0.57, 3.00,  0.43],
-            ROT:       [1.344, 3.368, -0.524],
+            WEAPON_BONE: 'hand_R',               // ← logical bone name
+            SCALE: 0.340, POS: [-0.57, 3.00, 0.43], ROT: [1.344, 3.368, -0.524],
             FIRE_RATE: 0.15,
             DAMAGE:    20,
+            // Bullet spawn point — local offset from the gun mesh origin (tip of barrel)
+            // X = right, Y = up, Z = negative = forward (shoot direction)
+            BULLET_OFFSET:        [0, 0, -5],
+            // Fallback height above player feet used when the gun mesh isn't loaded yet
+            BULLET_HEIGHT_OFFSET: 8,
         },
         MELEE: {
-            // ── Shared ──
             MODEL:       'models/lightsaber.glb',
-            WEAPON_BONE: 'hand_R',
-            SWING_BONES: ['upper_arm_R', 'lower_arm_R', 'hand_R'],  // logical
-
-            // ── Fallback defaults ──
-            SCALE:       0.660,
-            POS:         [-0.57, 3.00, -1.48],
-            ROT:         [1.34,  3.14, -1.47],
-            FIRE_RATE:   0.4,
-            DAMAGE:      50,
-            RANGE:       20,
+            WEAPON_BONE: 'hand_R',               // ← logical bone name
+            SWING_BONES: ['upper_arm_R', 'lower_arm_R', 'hand_R'], // ← logical
+            SCALE: 0.660, POS: [-0.57, 3.00, -1.48], ROT: [1.34, 3.14, -1.47],
+            FIRE_RATE: 0.4, DAMAGE: 50, RANGE: 20,
             SWING_SPEED: 18,
 
             SWINGS: [

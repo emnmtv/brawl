@@ -172,8 +172,9 @@ export function resolveAnimationTarget(state, actions) {
             'walk_forward_right', 'walk_forward', 'idle'
         );
         if (forward) return pick(
-            p && isShooting ? 'run_forward_firing' : null,
-            p ? 'run_forward'   : 'walk_forward',
+            p  && isShooting ? 'run_forward_firing'  : null,
+            !p && isShooting ? 'walk_forward_firing' : null,
+            p ? 'run_forward' : 'walk_forward',
             'walk_forward', 'idle'
         );
 

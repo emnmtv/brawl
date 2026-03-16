@@ -66,7 +66,21 @@ export const MODEL_REGISTRY = {
             melee_combo_2:          'melee_combo_2',
             melee_kick:             'melee_kick',
         },
-        // Per-model weapon config — edit here or use the in-game tuner (V key)
+        physics: {
+            height: 12.000, width: 6.000,
+            walkSpeed:      15.000,
+            runMultiplier:  2.200,
+            stepRate:       0.450,
+            gravity:        75.000,
+            jumpStrength:   30.000,
+            stepUp:         2.000,
+            stepDown:       8.000,
+            hitboxCenterOffsetY: 3.200,
+            hitboxSize: { x: 2.900, y: 7.200, z: 3.700 },
+            cameraPivotY:   10.000,
+            camOffset: { x: 3.000, y: 2.000, z: 20.000 },
+            camLookAt: { x: 0, y: 0, z: -100.000 },
+        },
         weapons: {
             gun: {
                 SCALE: 0.340,
@@ -74,6 +88,11 @@ export const MODEL_REGISTRY = {
                 ROT:   [1.344, 3.368, -0.524],
                 FIRE_RATE: 0.15,
                 DAMAGE:    20,
+                // Bullet spawn — local offset from the gun mesh origin (tip of barrel)
+                // X = right, Y = up, Z = forward (negative = shoot direction)
+                BULLET_OFFSET:        [0, 0, -5],
+                // Fallback height above player feet when gun mesh isn't loaded yet
+                BULLET_HEIGHT_OFFSET: 8,
             },
             melee: {
                 SCALE: 0.660,
@@ -122,16 +141,16 @@ export const MODEL_REGISTRY = {
             preview:     null,
         },
         path:         'models/walterwhite.glb',
-        scale:        1,
+        scale:        3,
         rootRotation: Math.PI,
         upperBodyPattern: /(spine|chest|arm|hand|head|neck)/i,
-        size: { height: 5, width: 4.5 },
+        size: { height: 1, width: 1 },
         bones: {
             hand_R:      'mixamorigRightHand',
-            upper_arm_R: 'RightUpperArm',
-            lower_arm_R: 'RightForeArm',
-            spine:       'Spine',
-            head:        'Head',
+            upper_arm_R: 'mixamorigRightArm',
+            lower_arm_R: 'mixamorigRightForeArm',
+            spine:       'mixamorigSpine',
+            head:        'mixamorigHead',
         },
         animations: {
             idle:          ['Idle', 'idle', 'IDLE'],
@@ -139,27 +158,42 @@ export const MODEL_REGISTRY = {
             run_forward:   ['Run', 'Running', 'run_forward'],
             walk_backward: ['Run', 'Running', 'run_backward'],
             shoot_idle:    ['Shoot', 'ShootIdle', 'shoot_idle'],
+            walk_forward_firing:     'run_forward_firing',
         },
-        // Per-model weapon config — tune these in-game with V key, then copy here
+        physics: {
+            height: 5.000, width: 4.500,
+            walkSpeed:      10.500,
+            runMultiplier:  1.700,
+            stepRate:       0.450,
+            gravity:        61.000,
+            jumpStrength:   24.500,
+            stepUp:         1.000,
+            stepDown:       3.600,
+            hitboxCenterOffsetY: 2.500,
+            hitboxSize: { x: 1.800, y: 4.700, z: 2.400 },
+            cameraPivotY:   4.200,
+            camOffset: { x: 2.300, y: 0.800, z: 8.500 },
+            camLookAt: { x: 0, y: 0, z: -42.000 },
+        },
         weapons: {
             gun: {
-                SCALE: 0.200,
-                POS:   [-0.20, 1.20, 0.20],
-                ROT:   [1.344, 3.368, -0.524],
+                SCALE: 0.910,
+                POS:   [1.000, 1.000, 0.810],
+                ROT:   [1.680, 3.140, 1.650],
                 FIRE_RATE: 0.15,
                 DAMAGE:    20,
+                BULLET_OFFSET:        [0, 10, 5],
+                BULLET_HEIGHT_OFFSET: 4,
             },
+          // Model: walterwhite  Weapon: MELEE
 
-
-            // Model: walterwhite  Weapon: MELEE
-
-           melee: {
-               SCALE: 1.370,
-               POS:   [2.780, 2.520, 2.070],
-             ROT:   [-1.780, 2.790, -0.500],
-              RANGE: 12,
-              DAMAGE: 50,
-              SWING_SPEED: 18,
+  melee: {
+    SCALE: 1.650,
+    POS:   [0.260, 0.840, 1.270],
+    ROT:   [1.620, 2.520, 0.530],
+    RANGE: 12,
+    DAMAGE: 50,
+    SWING_SPEED: 18,
                 SWINGS: [
                     {
                         name: 'Standard Slash',
@@ -219,51 +253,31 @@ export function getAllModelIds() {
 
 /**
  * getWeaponConfig(modelId, type)
- *
- * Returns a LIVE, STABLE reference to the fully-merged weapon config for this
- * model and weapon type ('gun' or 'melee').
- *
- * HOW IT WORKS — called once per (modelId, type) pair:
- *   1. Deep-clone the global CONFIG.WEAPONS[TYPE] as the base defaults.
- *   2. Spread any per-model overrides on top  (per-model wins on every key).
- *   3. Store the merged object back into entry.weapons[type].
- *   4. All subsequent calls return that same object reference.
- *
- * This means:
- *   - Models with a partial weapons block (e.g. only SCALE/POS/ROT) still get
- *     FIRE_RATE, SWINGS, MODEL, etc. from the global defaults.
- *   - In-game tuner mutations write to the same stable reference and persist.
- *   - Models never share array references (deep-clone prevents cross-model bleed).
+ * Returns a LIVE merged weapon config — per-model values always win over globals.
  */
 export function getWeaponConfig(modelId, type) {
     const entry     = MODEL_REGISTRY[modelId];
     const globalCfg = CONFIG.WEAPONS[type.toUpperCase()];
 
-    if (!entry) return _deepCloneWeaponCfg(globalCfg);   // unknown model — return safe copy
+    if (!entry) return _deepCloneWeaponCfg(globalCfg);
 
     if (!entry.weapons)            entry.weapons            = {};
     if (!entry._wcInitialized)     entry._wcInitialized     = {};
     if (!entry._wcInitialized[type]) {
-        // Deep-clone global defaults so arrays are never shared between models
-        const base = _deepCloneWeaponCfg(globalCfg);
-        // Spread per-model overrides on top — per-model keys always win
+        const base           = _deepCloneWeaponCfg(globalCfg);
         const modelOverrides = entry.weapons[type] || {};
-        entry.weapons[type] = {
-            ...base,
-            ...modelOverrides,
-            // If both sides define SWINGS, per-model wins (already handled by spread above)
-        };
+        entry.weapons[type]  = { ...base, ...modelOverrides };
         entry._wcInitialized[type] = true;
     }
     return entry.weapons[type];
 }
 
-/** Deep-clones a weapon config object so models never share array references. */
 function _deepCloneWeaponCfg(cfg) {
     return {
         ...cfg,
-        POS: cfg.POS ? [...cfg.POS] : [0, 0, 0],
-        ROT: cfg.ROT ? [...cfg.ROT] : [0, 0, 0],
+        POS:           cfg.POS           ? [...cfg.POS]           : [0, 0, 0],
+        ROT:           cfg.ROT           ? [...cfg.ROT]           : [0, 0, 0],
+        BULLET_OFFSET: cfg.BULLET_OFFSET ? [...cfg.BULLET_OFFSET] : [0, 0, -5],
         ...(cfg.SWINGS ? {
             SWINGS: cfg.SWINGS.map(s => ({
                 ...s,
@@ -278,23 +292,36 @@ function _deepCloneWeaponCfg(cfg) {
 }
 
 /**
- * Derives all physics, camera, and hitbox constants from a model's size.
- * Reference baseline: height=12, width=6  (the T-800)
+ * getSizeConfig(modelId)
+ * Returns the LIVE physics config object — mutations are immediately visible everywhere.
  */
 export function getSizeConfig(modelId) {
-    const entry   = getModel(modelId);
-    const size    = entry.size ?? { height: 12, width: 6 };
-    const h       = size.height;
-    const w       = size.width;
-    const r       = h / 12;
+    const entry = getModel(modelId);
 
-    return {
+    if (entry.physics) {
+        const p = entry.physics;
+        const h = p.height || 12;
+        const w = p.width  || 6;
+        if (!Array.isArray(p.wallRayHeights))
+            p.wallRayHeights = [h * 0.083, h * 0.417, h * 0.75];
+        if (!p.hitboxSize || typeof p.hitboxSize !== 'object')
+            p.hitboxSize = { x: w, y: h, z: w };
+        if (!p.camOffset  || typeof p.camOffset  !== 'object')
+            p.camOffset  = { x: w * 0.5, y: h * 0.167, z: h * 1.667 };
+        if (!p.camLookAt  || typeof p.camLookAt  !== 'object')
+            p.camLookAt  = { x: 0, y: 0, z: -h * 8.333 };
+        return p;
+    }
+
+    const size = entry.size ?? { height: 12, width: 6 };
+    const h = size.height, w = size.width, r = h / 12;
+    entry.physics = {
         height: h, width: w,
-        walkSpeed:           15  * r,
+        walkSpeed:           15   * r,
         runMultiplier:       2.2,
         stepRate:            0.45,
-        gravity:             75  * r,
-        jumpStrength:        30  * r,
+        gravity:             75   * r,
+        jumpStrength:        30   * r,
         cameraPivotY:        h * 0.833,
         hitboxCenterOffsetY: h * 0.5,
         hitboxSize:          { x: w, y: h, z: w },
@@ -304,4 +331,5 @@ export function getSizeConfig(modelId) {
         camOffset:           { x: w * 0.5,  y: h * 0.167, z: h * 1.667 },
         camLookAt:           { x: 0,        y: 0,          z: -h * 8.333 },
     };
+    return entry.physics;
 }

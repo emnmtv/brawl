@@ -128,35 +128,120 @@
             <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill"></div></div>
         </div>
 
-        <div id="dev-tuner" style="position:absolute; top:20px; right:20px; width:380px; pointer-events:auto; background:rgba(0,0,0,0.85); border:1px solid #ffaa00; color:white; padding:15px; font-family:'Courier New'; font-size:12px; display:none; z-index:1000;">
-            <h3 style="margin:0 0 5px; color:#ffaa00;">🛠️ ACTIVE WEAPON TUNER</h3>
-            <p style="color:#aaa;margin-top:0;">Press 1/2 to switch weapon context.</p>
-            <div style="color:#0ff; margin-bottom: 5px;">Transform (Model offset)</div>
-            <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-scale-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos X</span><input type="range" id="tune-px" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-px-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos Y</span><input type="range" id="tune-py" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-py-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos Z</span><input type="range" id="tune-pz" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-pz-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot X</span><input type="range" id="tune-rx" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-rx-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot Y</span><input type="range" id="tune-ry" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-ry-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot Z</span><input type="range" id="tune-rz" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-rz-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+        <div id="dev-tuner" style="position:absolute; top:20px; right:20px; width:400px; max-height:90vh; overflow-y:auto; pointer-events:auto; background:rgba(0,0,0,0.9); border:1px solid #ffaa00; color:white; padding:15px; font-family:'Courier New'; font-size:12px; display:none; z-index:1000;">
+
+            <!-- ── Header ── -->
+            <h3 style="margin:0 0 8px; color:#ffaa00;">🛠️ DEV TUNER</h3>
+            <div id="tuner-model-label" style="color:#00ffcc; font-size:11px; letter-spacing:2px; margin-bottom:8px;"></div>
+
+            <!-- ── Tab bar ── -->
+            <div style="display:flex; gap:6px; margin-bottom:12px;">
+                <button id="tab-btn-weapon"  onclick="switchTunerTab('weapon')"  style="flex:1; padding:6px; background:#ffaa00; color:black; border:none; font-family:'Courier New'; font-size:11px; font-weight:bold; cursor:pointer; letter-spacing:2px;">WEAPON</button>
+                <button id="tab-btn-physics" onclick="switchTunerTab('physics')" style="flex:1; padding:6px; background:#333;    color:#aaa;   border:1px solid #555; font-family:'Courier New'; font-size:11px; font-weight:bold; cursor:pointer; letter-spacing:2px;">PHYSICS</button>
             </div>
-            <div style="color:#0ff; margin-bottom: 5px;">Procedural Swing Anim (Melee Only)</div>
-            <div class="tuner-group" style="margin-bottom:10px;">
-                <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">1. Shoulder (bip_upperArm_R)</div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s0x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s0y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s0z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">2. Elbow (bip_lowerArm_R)</div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s1x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s1y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s1z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">3. Wrist (bip_hand_R)</div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s2x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s2y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s2z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+
+            <!-- ══════════════════════════════════════
+                 WEAPON TAB
+            ══════════════════════════════════════ -->
+            <div id="tuner-tab-weapon">
+                <p style="color:#aaa;margin:0 0 8px 0;">Press 1/2 to switch weapon context.</p>
+                <div style="color:#0ff; margin-bottom: 5px;">Transform (Model offset)</div>
+                <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-scale-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos X</span><input type="range" id="tune-px" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-px-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos Y</span><input type="range" id="tune-py" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-py-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Pos Z</span><input type="range" id="tune-pz" min="-3" max="3" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-pz-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot X</span><input type="range" id="tune-rx" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-rx-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot Y</span><input type="range" id="tune-ry" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-ry-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Rot Z</span><input type="range" id="tune-rz" min="-3.14" max="3.14" step="0.01" style="flex:1; margin:0 10px;"><input type="number" id="tune-rz-num" step="0.01" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+                <div style="color:#0ff; margin-bottom:5px; margin-top:2px;">Bullet Spawn (Gun Only)</div>
+                <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
+                    <div style="color:#aaa; font-size:10px; margin-bottom:4px;">fromBarrel=true: offset on gun mesh local axes &nbsp;|&nbsp; false: offset from character feet</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                        <span style="width:110px;">From Barrel</span>
+                        <label style="flex:1; margin:0 10px; display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tune-gs-fromBarrel" style="width:16px; height:16px; accent-color:#00ffcc;">
+                            <span id="tune-gs-fromBarrel-label" style="color:#00ffcc; font-size:11px;">ON</span>
+                        </label>
+                    </div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="tune-gs-x" min="-10" max="10" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-gs-x-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="tune-gs-y" min="-10" max="20" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-gs-y-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset Z (fwd)</span><input type="range" id="tune-gs-z" min="-20" max="5" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-gs-z-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+
+                <div style="color:#0ff; margin-bottom: 5px;">Procedural Swing Anim (Melee Only)</div>
+                <div class="tuner-group" style="margin-bottom:10px;">
+                    <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">1. Shoulder (bip_upperArm_R)</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s0x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s0y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s0z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s0z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">2. Elbow (bip_lowerArm_R)</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s1x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s1y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s1z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s1z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div style="color:#ffaa00; font-size:10px; margin-bottom:2px; text-transform:uppercase;">3. Wrist (bip_hand_R)</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">X</span><input type="range" id="tune-s2x" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2x-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Y</span><input type="range" id="tune-s2y" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2y-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="width:25px; color:#aaa;">Z</span><input type="range" id="tune-s2z" min="-3" max="3" step="0.1" style="flex:1; margin:0 5px;"><input type="number" id="tune-s2z-num" step="0.1" style="width:50px; background:#222; color:#0ff; border:1px solid #555;"></div>
+                </div>
+                <!-- Bullet spawn — shown for gun context only -->
+                <div id="tune-bullet-section">
+                    <div style="color:#0ff; margin-bottom:5px; margin-top:4px;">Bullet Spawn (Gun Only)</div>
+                    <div class="tuner-group" style="margin-bottom:10px;">
+                        <div style="color:#ffaa00; font-size:10px; margin-bottom:4px; text-transform:uppercase;">Local offset from gun mesh (barrel tip)</div>
+                        <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Offset X</span><input type="range" id="tune-bx" min="-10" max="10" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-bx-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                        <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Offset Y</span><input type="range" id="tune-by" min="-10" max="10" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-by-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                        <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Offset Z</span><input type="range" id="tune-bz" min="-20" max="5" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-bz-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                        <div style="color:#ffaa00; font-size:10px; margin:6px 0 4px; text-transform:uppercase;">Fallback height (no mesh loaded)</div>
+                        <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:90px;">Height</span><input type="range" id="tune-bh" min="0" max="30" step="0.1" style="flex:1; margin:0 10px;"><input type="number" id="tune-bh-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    </div>
+                </div>
             </div>
-            <div id="tuner-code" style="background:#111; border:1px solid #555; padding:8px; color:#fff; white-space:pre-wrap; font-size:11px; margin-top:5px;"></div>
+
+            <!-- ══════════════════════════════════════
+                 PHYSICS TAB
+            ══════════════════════════════════════ -->
+            <div id="tuner-tab-physics" style="display:none;">
+
+                <div style="color:#0ff; margin-bottom:5px;">Movement</div>
+                <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Walk Speed</span><input type="range" id="phys-walkSpeed" min="1" max="100" step="0.5" style="flex:1; margin:0 8px;"><input type="number" id="phys-walkSpeed-num" step="0.5" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Run Mult</span><input type="range" id="phys-runMultiplier" min="1" max="6" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-runMultiplier-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Step Rate</span><input type="range" id="phys-stepRate" min="0.1" max="2" step="0.05" style="flex:1; margin:0 8px;"><input type="number" id="phys-stepRate-num" step="0.05" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+
+                <div style="color:#0ff; margin-bottom:5px;">Jump &amp; Gravity</div>
+                <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Gravity</span><input type="range" id="phys-gravity" min="5" max="500" step="1" style="flex:1; margin:0 8px;"><input type="number" id="phys-gravity-num" step="1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Jump Strength</span><input type="range" id="phys-jumpStrength" min="1" max="200" step="0.5" style="flex:1; margin:0 8px;"><input type="number" id="phys-jumpStrength-num" step="0.5" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Step Up</span><input type="range" id="phys-stepUp" min="0.1" max="10" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-stepUp-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Step Down</span><input type="range" id="phys-stepDown" min="0.1" max="30" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-stepDown-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+
+                <div style="color:#0ff; margin-bottom:5px;">Camera</div>
+                <div class="tuner-group" style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #444;">
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Pivot Y</span><input type="range" id="phys-cameraPivotY" min="0" max="50" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-cameraPivotY-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div style="color:#ffaa00; font-size:10px; margin:4px 0 2px; text-transform:uppercase;">Orbit Offset (right / up / back)</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="phys-camOffsetX" min="-20" max="20" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-camOffsetX-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="phys-camOffsetY" min="-20" max="20" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-camOffsetY-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Offset Z</span><input type="range" id="phys-camOffsetZ" min="0" max="100" step="0.5" style="flex:1; margin:0 8px;"><input type="number" id="phys-camOffsetZ-num" step="0.5" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div style="color:#ffaa00; font-size:10px; margin:4px 0 2px; text-transform:uppercase;">Look Target (forward distance)</div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">LookAt Z</span><input type="range" id="phys-camLookAtZ" min="-500" max="0" step="1" style="flex:1; margin:0 8px;"><input type="number" id="phys-camLookAtZ-num" step="1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+
+                <div style="color:#0ff; margin-bottom:5px;">Hitbox</div>
+                <div class="tuner-group" style="margin-bottom:10px;">
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Center Y</span><input type="range" id="phys-hitboxCY" min="0" max="30" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-hitboxCY-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Size X</span><input type="range" id="phys-hitboxX" min="0.5" max="20" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-hitboxX-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Size Y</span><input type="range" id="phys-hitboxY" min="0.5" max="40" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-hitboxY-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="width:110px;">Size Z</span><input type="range" id="phys-hitboxZ" min="0.5" max="20" step="0.1" style="flex:1; margin:0 8px;"><input type="number" id="phys-hitboxZ-num" step="0.1" style="width:60px; background:#222; color:#00ffcc; border:1px solid #555;"></div>
+                </div>
+            </div>
+
+            <!-- ── Code output ── -->
+            <div id="tuner-code" style="background:#111; border:1px solid #555; padding:8px; color:#fff; white-space:pre-wrap; font-size:11px; margin-top:5px; user-select:all;"></div>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('tuner-code').innerText)" style="width:100%; margin-top:6px; padding:5px; background:#222; color:#00ffcc; border:1px solid #00ffcc; font-family:'Courier New'; font-size:11px; cursor:pointer; letter-spacing:2px;">📋 COPY</button>
         </div>
     </div>
 

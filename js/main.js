@@ -6,7 +6,7 @@ import { BeamPool, Enemy }     from './Systems.js';
 import { Character }           from './Character.js';
 import { MapLoader }           from './MapLoader.js';
 import { NetworkManager }      from './Network.js';
-import { getAllModelIds, getModel, getWeaponConfig } from './ModelRegistry.js';
+import { getAllModelIds, getModel, getWeaponConfig, getSizeConfig } from './ModelRegistry.js';
 
 const scene    = new THREE.Scene(); scene.fog = new THREE.Fog(0x111111, 40, 600);
 const camera   = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000); camera.rotation.order = 'YXZ';
@@ -183,24 +183,45 @@ const damageUI = new DamageUI();
 // ═══════════════════════════════════════════════════
 //  TUNER
 // ═══════════════════════════════════════════════════
-const tunerIds=['scale','px','py','pz','rx','ry','rz','s0x','s0y','s0z','s1x','s1y','s1z','s2x','s2y','s2z'];
+const tunerIds=['scale','px','py','pz','rx','ry','rz','s0x','s0y','s0z','s1x','s1y','s1z','s2x','s2y','s2z','bx','by','bz','bh'];
 function initTuner() {
     tunerIds.forEach(id=>{
         const s=document.getElementById('tune-'+id), n=document.getElementById('tune-'+id+'-num'); if(!s||!n) return;
         const sync=e=>{const v=parseFloat(e.target.value);s.value=v;n.value=v;applyTuner();};
         s.addEventListener('input',sync); n.addEventListener('input',sync);
     });
+    // Gun spawn inputs
+    ['x','y','z'].forEach(axis => {
+        const s = document.getElementById('tune-gs-'+axis);
+        const n = document.getElementById('tune-gs-'+axis+'-num');
+        if (s && n) {
+            const sync = e => { const v=parseFloat(e.target.value); s.value=v; n.value=v; applyTuner(); };
+            s.addEventListener('input', sync); n.addEventListener('input', sync);
+        }
+    });
+    const cb = document.getElementById('tune-gs-fromBarrel');
+    if (cb) cb.addEventListener('change', () => {
+        const lbl = document.getElementById('tune-gs-fromBarrel-label');
+        if (lbl) lbl.textContent = cb.checked ? 'ON' : 'OFF';
+        applyTuner();
+    });
 }
 function refreshTunerUI() {
     if (!player) return;
     const wt  = player.weaponManager.currentType;
-    // Always read from the live per-model config so each character retains its own values
     const cfg = player.weaponManager.weapons[wt].config;
-    const set = (id,v) => { const s=document.getElementById('tune-'+id), n=document.getElementById('tune-'+id+'-num'); if(s&&n){s.value=v;n.value=v;} };
+    const set = (id,v) => { const s=document.getElementById('tune-'+id), n=document.getElementById('tune-'+id+'-num'); if(s&&n){s.value=v;n.value=parseFloat(v).toFixed(3);} };
     set('scale', cfg.SCALE); set('px', cfg.POS[0]); set('py', cfg.POS[1]); set('pz', cfg.POS[2]);
     set('rx', cfg.ROT[0]);   set('ry', cfg.ROT[1]); set('rz', cfg.ROT[2]);
+    // Bullet spawn — gun only
+    const bulletSection = document.getElementById('tune-bullet-section');
+    if (bulletSection) bulletSection.style.display = wt === 'gun' ? 'block' : 'none';
+    if (wt === 'gun') {
+        const bo = cfg.BULLET_OFFSET || [0, 0, -5];
+        set('bx', bo[0]); set('by', bo[1]); set('bz', bo[2]);
+        set('bh', cfg.BULLET_HEIGHT_OFFSET ?? 8);
+    }
     if (wt === 'melee') {
-        // Show first swing's address frame as the representative preview rotation
         const swings = cfg.SWINGS;
         if (swings && swings[0]) {
             const addr = swings[0].address;
@@ -217,15 +238,18 @@ function refreshTunerUI() {
 function applyTuner() {
     if (!player) return;
     const wt   = player.weaponManager.currentType;
-    const cfg  = player.weaponManager.weapons[wt].config;  // live per-model config reference
+    const cfg  = player.weaponManager.weapons[wt].config;
     const mesh = player.weaponManager.weapons[wt].mesh;
     const g    = id => { const el=document.getElementById('tune-'+id); return el ? parseFloat(el.value) : 0; };
     cfg.SCALE = g('scale');
     cfg.POS   = [g('px'), g('py'), g('pz')];
     cfg.ROT   = [g('rx'), g('ry'), g('rz')];
     if (mesh) { mesh.scale.setScalar(cfg.SCALE); mesh.position.set(...cfg.POS); mesh.rotation.set(...cfg.ROT); }
+    if (wt === 'gun') {
+        cfg.BULLET_OFFSET        = [g('bx'), g('by'), g('bz')];
+        cfg.BULLET_HEIGHT_OFFSET = g('bh');
+    }
     if (wt === 'melee' && cfg.SWINGS && cfg.SWINGS[0]) {
-        // Write the tuner swing values back into the first swing's address frame
         const addr = cfg.SWINGS[0].address;
         [[0,g('s0x'),g('s0y'),g('s0z')],[1,g('s1x'),g('s1y'),g('s1z')],[2,g('s2x'),g('s2y'),g('s2z')]].forEach(([i,x,y,z])=>{
             if (addr[i]) { addr[i][0]=x; addr[i][1]=y; addr[i][2]=z; }
@@ -238,18 +262,140 @@ function generateTunerCode() {
     const wt  = player.weaponManager.currentType;
     const cfg = player.weaponManager.weapons[wt].config;
     const mid = player.modelId;
+    const f   = n => parseFloat(n).toFixed(3);
     let code = `// Model: ${mid}  Weapon: ${wt.toUpperCase()}\n`;
     code += `weapons: {\n  ${wt}: {\n`;
-    code += `    SCALE: ${cfg.SCALE.toFixed(3)},\n`;
-    code += `    POS:   [${cfg.POS.map(n=>n.toFixed(3)).join(', ')}],\n`;
-    code += `    ROT:   [${cfg.ROT.map(n=>n.toFixed(3)).join(', ')}],\n`;
-    if (wt === 'melee' && cfg.RANGE  != null) code += `    RANGE: ${cfg.RANGE},\n`;
-    if (wt === 'melee' && cfg.DAMAGE != null) code += `    DAMAGE: ${cfg.DAMAGE},\n`;
+    code += `    SCALE: ${f(cfg.SCALE)},\n`;
+    code += `    POS:   [${cfg.POS.map(f).join(', ')}],\n`;
+    code += `    ROT:   [${cfg.ROT.map(f).join(', ')}],\n`;
+    if (wt === 'gun') {
+        const bo = cfg.BULLET_OFFSET || [0,0,-5];
+        code += `    BULLET_OFFSET:        [${bo.map(f).join(', ')}],\n`;
+        code += `    BULLET_HEIGHT_OFFSET: ${f(cfg.BULLET_HEIGHT_OFFSET ?? 8)},\n`;
+    }
+    if (wt === 'melee' && cfg.RANGE       != null) code += `    RANGE: ${cfg.RANGE},\n`;
+    if (wt === 'melee' && cfg.DAMAGE      != null) code += `    DAMAGE: ${cfg.DAMAGE},\n`;
     if (wt === 'melee' && cfg.SWING_SPEED != null) code += `    SWING_SPEED: ${cfg.SWING_SPEED},\n`;
     code += `  }\n}`;
-    document.getElementById('tuner-code').innerText=code;
+    document.getElementById('tuner-code').innerText = code;
 }
 window.addEventListener('keydown', e=>{ if((e.code==='Digit1'||e.code==='Digit2')&&inputManager.isNoclip) setTimeout(refreshTunerUI,50); });
+
+// ── Tab switching ─────────────────────────────────────────────
+let activeTunerTab = 'weapon';
+window.switchTunerTab = function(tab) {
+    activeTunerTab = tab;
+    document.getElementById('tuner-tab-weapon').style.display  = tab === 'weapon'  ? 'block' : 'none';
+    document.getElementById('tuner-tab-physics').style.display = tab === 'physics' ? 'block' : 'none';
+    document.getElementById('tab-btn-weapon').style.background  = tab === 'weapon'  ? '#ffaa00' : '#333';
+    document.getElementById('tab-btn-weapon').style.color       = tab === 'weapon'  ? 'black'   : '#aaa';
+    document.getElementById('tab-btn-physics').style.background = tab === 'physics' ? '#00ffcc' : '#333';
+    document.getElementById('tab-btn-physics').style.color      = tab === 'physics' ? 'black'   : '#aaa';
+    document.getElementById('tab-btn-weapon').style.border      = tab === 'weapon'  ? 'none' : '1px solid #555';
+    document.getElementById('tab-btn-physics').style.border     = tab === 'physics' ? 'none' : '1px solid #555';
+    if (tab === 'weapon')  { refreshTunerUI(); }
+    if (tab === 'physics') { refreshPhysicsTuner(); }
+};
+
+// ── Physics tuner ─────────────────────────────────────────────
+const physIds = ['walkSpeed','runMultiplier','stepRate','gravity','jumpStrength',
+                 'stepUp','stepDown','cameraPivotY',
+                 'camOffsetX','camOffsetY','camOffsetZ','camLookAtZ',
+                 'hitboxCY','hitboxX','hitboxY','hitboxZ'];
+
+function initPhysicsTuner() {
+    physIds.forEach(id => {
+        const s = document.getElementById('phys-'+id);
+        const n = document.getElementById('phys-'+id+'-num');
+        if (!s || !n) return;
+        const sync = e => { const v = parseFloat(e.target.value); s.value = v; n.value = v; applyPhysicsTuner(); };
+        s.addEventListener('input', sync);
+        n.addEventListener('input', sync);
+    });
+}
+
+function refreshPhysicsTuner() {
+    if (!player) return;
+    const p   = player.sizeConfig;  // live reference to entry.physics
+    const set = (id, v) => {
+        const s = document.getElementById('phys-'+id), n = document.getElementById('phys-'+id+'-num');
+        if (s && n) { s.value = v; n.value = parseFloat(v).toFixed(3); }
+    };
+    set('walkSpeed',     p.walkSpeed);
+    set('runMultiplier', p.runMultiplier);
+    set('stepRate',      p.stepRate);
+    set('gravity',       p.gravity);
+    set('jumpStrength',  p.jumpStrength);
+    set('stepUp',        p.stepUp);
+    set('stepDown',      p.stepDown);
+    set('cameraPivotY',  p.cameraPivotY);
+    set('camOffsetX',    p.camOffset.x);
+    set('camOffsetY',    p.camOffset.y);
+    set('camOffsetZ',    p.camOffset.z);
+    set('camLookAtZ',    p.camLookAt.z);
+    set('hitboxCY',      p.hitboxCenterOffsetY);
+    set('hitboxX',       p.hitboxSize.x);
+    set('hitboxY',       p.hitboxSize.y);
+    set('hitboxZ',       p.hitboxSize.z);
+    generatePhysicsCode();
+}
+
+function applyPhysicsTuner() {
+    if (!player) return;
+    const p = player.sizeConfig;  // write directly to live entry.physics
+    const g = id => { const el = document.getElementById('phys-'+id); return el ? parseFloat(el.value) : 0; };
+
+    p.walkSpeed           = g('walkSpeed');
+    p.runMultiplier       = g('runMultiplier');
+    p.stepRate            = g('stepRate');
+    p.gravity             = g('gravity');
+    p.jumpStrength        = g('jumpStrength');
+    p.stepUp              = g('stepUp');
+    p.stepDown            = g('stepDown');
+    p.cameraPivotY        = g('cameraPivotY');
+    p.camOffset.x         = g('camOffsetX');
+    p.camOffset.y         = g('camOffsetY');
+    p.camOffset.z         = g('camOffsetZ');
+    p.camLookAt.z         = g('camLookAtZ');
+    p.hitboxCenterOffsetY = g('hitboxCY');
+    p.hitboxSize.x        = g('hitboxX');
+    p.hitboxSize.y        = g('hitboxY');
+    p.hitboxSize.z        = g('hitboxZ');
+
+    // Apply camera pivot immediately (mounted on the mesh)
+    if (player.cameraPivot) player.cameraPivot.position.y = p.cameraPivotY;
+
+    // Re-sync Character cached values from the live config
+    player.baseWalkSpeed      = p.walkSpeed;
+    player.runSpeedMultiplier = p.runMultiplier;
+    player.gravity            = p.gravity;
+    player.jumpStrength       = p.jumpStrength;
+    player.stepRate           = p.stepRate;
+
+    generatePhysicsCode();
+}
+
+function generatePhysicsCode() {
+    if (!player) return;
+    const p   = player.sizeConfig;
+    const mid = player.modelId;
+    const f   = v => parseFloat(v).toFixed(3);
+    let code = `// Model: ${mid}\nphysics: {\n`;
+    code += `  height: ${f(p.height)}, width: ${f(p.width)},\n`;
+    code += `  walkSpeed:      ${f(p.walkSpeed)},\n`;
+    code += `  runMultiplier:  ${f(p.runMultiplier)},\n`;
+    code += `  stepRate:       ${f(p.stepRate)},\n`;
+    code += `  gravity:        ${f(p.gravity)},\n`;
+    code += `  jumpStrength:   ${f(p.jumpStrength)},\n`;
+    code += `  stepUp:         ${f(p.stepUp)},\n`;
+    code += `  stepDown:       ${f(p.stepDown)},\n`;
+    code += `  hitboxCenterOffsetY: ${f(p.hitboxCenterOffsetY)},\n`;
+    code += `  hitboxSize: { x: ${f(p.hitboxSize.x)}, y: ${f(p.hitboxSize.y)}, z: ${f(p.hitboxSize.z)} },\n`;
+    code += `  cameraPivotY:   ${f(p.cameraPivotY)},\n`;
+    code += `  camOffset: { x: ${f(p.camOffset.x)}, y: ${f(p.camOffset.y)}, z: ${f(p.camOffset.z)} },\n`;
+    code += `  camLookAt: { x: 0, y: 0, z: ${f(p.camLookAt.z)} },\n}`;
+    document.getElementById('tuner-code').innerText = code;
+}
 
 // ═══════════════════════════════════════════════════
 //  HELPERS
@@ -290,11 +436,15 @@ function startDevMode(modelId) {
     document.getElementById('ui-layer').style.display='block';
     document.getElementById('dev-hud').style.display='block';
     document.getElementById('pvp-hud').style.display='none';
-    initTuner();
+    initTuner(); initPhysicsTuner(); switchTunerTab('weapon');
     player=new Character(scene,modelId); enemy=new Enemy(scene,0,-120,modelId); wirePlayerDamage();
     loadMap('maps/battle_guys.glb',1,()=>{
         player.mesh.position.set(0,5,60); enemy.mesh.position.set(0,5,-60);
-        player.setCollisionMeshes(mapLoader.collisionMeshes); initHitboxHelpers(); setTimeout(refreshTunerUI,500);
+        player.setCollisionMeshes(mapLoader.collisionMeshes); initHitboxHelpers(); setTimeout(()=>{
+            refreshTunerUI();
+            const lbl = document.getElementById('tuner-model-label');
+            if (lbl) lbl.textContent = 'MODEL: ' + (player ? player.modelId.toUpperCase() : '—');
+        },500);
         document.getElementById('toggle-ai-btn').addEventListener('click',e=>{
             enemy.aiEnabled=!enemy.aiEnabled; e.target.innerText=`AI: ${enemy.aiEnabled?'ON':'OFF'}`;
             e.target.style.background=enemy.aiEnabled?'#ffaa00':'#444'; e.target.style.color=enemy.aiEnabled?'black':'white'; e.target.blur();
@@ -337,6 +487,14 @@ function loop() {
     requestAnimationFrame(loop);
     const dt=Math.min(clock.getDelta(),0.05);
 
+    // Keep model label and physics tab fresh while noclip is active
+    if (inputManager.isNoclip && player) {
+        const lbl = document.getElementById('tuner-model-label');
+        if (lbl && !lbl._set) { lbl.textContent = 'MODEL: ' + player.modelId.toUpperCase(); lbl._set = true; }
+    } else if (!inputManager.isNoclip) {
+        const lbl = document.getElementById('tuner-model-label');
+        if (lbl) lbl._set = false;
+    }
     if (inputManager.isNoclip) {
         camera.quaternion.setFromEuler(new THREE.Euler(inputManager.freecamPitch,inputManager.freecamYaw,0,'YXZ'));
         const spd=50*dt;

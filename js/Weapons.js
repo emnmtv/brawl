@@ -59,11 +59,16 @@ class GunWeapon extends WeaponStrategy {
 
     fire({ player, beamPool, isRemote }) {
         let spawnPos;
+
         if (this.mesh && !isRemote) {
-            spawnPos = this.mesh.localToWorld(new THREE.Vector3(0, 0, -5));
+            // Fire from barrel tip — BULLET_OFFSET is local to the gun mesh
+            // X = right, Y = up, Z = negative forward (shoot direction)
+            const bo = this.config.BULLET_OFFSET || [0, 0, -5];
+            spawnPos = this.mesh.localToWorld(new THREE.Vector3(bo[0], bo[1], bo[2]));
         } else {
+            // Fallback: spawn at player feet + BULLET_HEIGHT_OFFSET
             spawnPos = player.mesh.position.clone();
-            spawnPos.y += 8;
+            spawnPos.y += this.config.BULLET_HEIGHT_OFFSET ?? 8;
         }
 
         let aimDir;
