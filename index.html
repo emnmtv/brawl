@@ -17,6 +17,9 @@
 </head>
 <body>
 
+<!-- ═══════════════════════════════════════════════════
+     MAIN MENU
+═══════════════════════════════════════════════════ -->
 <div id="main-menu">
     <div class="menu-scanlines"></div>
     <div class="menu-logo">
@@ -25,6 +28,8 @@
         <p class="logo-sub">3RD PERSON SHOOTER PROTOTYPE</p>
         <div class="logo-divider"></div>
     </div>
+
+    <!-- Panel 1: Mode select -->
     <div id="menu-lobby" class="menu-panel">
         <button id="btn-dev-mode" class="menu-btn">
             <span class="btn-icon">⚙</span> DEV MODE
@@ -34,12 +39,52 @@
             <span class="btn-icon">⚡</span> PVP MODE
             <small>Multiplayer · WebSocket</small>
         </button>
-        <p class="menu-hint">Map: Halo 2 (halo2map.glb)</p>
+        <p class="menu-hint">Map: battle_guys.glb</p>
     </div>
+
+    <!-- Panel 2: Character select (built dynamically by main.js) -->
+    <div id="menu-char-select" class="menu-panel char-select-panel" style="display:none">
+        <h2 class="panel-title">SELECT OPERATIVE</h2>
+        <p class="menu-hint" style="margin-bottom:12px;">Choose your unit for this deployment</p>
+
+        <!-- Cards injected here by buildCharacterSelect() in main.js -->
+        <div id="char-card-grid"></div>
+
+        <!-- Stat readout for hovered / selected card -->
+        <div id="char-detail">
+            <div id="char-detail-name">—</div>
+            <div id="char-detail-sub">—</div>
+            <p id="char-detail-desc"></p>
+            <div id="char-stats">
+                <div class="stat-row">
+                    <span class="stat-label">SPD</span>
+                    <div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-speed"></div></div>
+                    <span class="stat-val" id="stat-speed-val">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">DMG</span>
+                    <div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-damage"></div></div>
+                    <span class="stat-val" id="stat-damage-val">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">ARM</span>
+                    <div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-armor"></div></div>
+                    <span class="stat-val" id="stat-armor-val">—</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="pvp-btn-row" style="margin-top:16px;">
+            <button id="btn-char-back" class="menu-btn small">← BACK</button>
+            <button id="btn-char-confirm" class="menu-btn small" disabled>CONFIRM ▶</button>
+        </div>
+    </div>
+
+    <!-- Panel 3: PvP lobby (only shown after char select in pvp flow) -->
     <div id="menu-pvp" class="menu-panel" style="display:none">
         <h2 class="panel-title">PVP LOBBY</h2>
         <label class="field-label">Server URL</label>
-        <input id="pvp-server-url" class="menu-input" type="text" value="ws://192.168.0.107:8080">
+        <input id="pvp-server-url" class="menu-input" type="text" value="ws://10.0.0.127:8080">
         <label class="field-label">Callsign</label>
         <input id="pvp-name" class="menu-input" type="text" value="SPARTAN" maxlength="16">
         <div class="pvp-btn-row">
@@ -49,14 +94,20 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════
+     CONNECTING OVERLAY
+═══════════════════════════════════════════════════ -->
 <div id="connecting-overlay" style="display:none">
     <div class="spinner"></div>
     <p id="connecting-msg">Connecting…</p>
 </div>
 
+<!-- ═══════════════════════════════════════════════════
+     IN-GAME UI LAYER
+═══════════════════════════════════════════════════ -->
 <div id="ui-layer" style="display:none">
 
-    <!-- ═══ DEV HUD ═══ -->
+    <!-- DEV HUD -->
     <div id="dev-hud" style="display:none">
         <div id="hud">
             <h2>COMBAT OS · DEV</h2>
@@ -109,7 +160,7 @@
         </div>
     </div>
 
-    <!-- ═══ PVP HUD ═══ -->
+    <!-- PVP HUD -->
     <div id="pvp-hud" style="display:none">
         <div id="hud">
             <h2>COMBAT OS · PVP</h2>
@@ -123,7 +174,7 @@
         </div>
     </div>
 
-    <!-- ═══ SHARED HUD ELEMENTS ═══ -->
+    <!-- Shared HUD elements -->
     <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
     <div id="player-info" style="position:absolute;bottom:20px;right:20px;color:#00ffcc;text-align:right;text-shadow:0 0 5px #00ffcc;">
         <h2>SYSTEM INTEGRITY</h2>
@@ -134,13 +185,11 @@
     <div id="net-alert"></div>
     <div id="loading-status"></div>
 
-    <!-- ═══ DAMAGE INDICATOR ═══ -->
-    <!-- Full-screen red vignette flash on any hit -->
+    <!-- Damage indicators -->
     <div id="hit-flash"></div>
-    <!-- Container for positional directional arrow indicators -->
     <div id="damage-indicators"></div>
 
-    <!-- ═══ DEATH / RESPAWN SCREEN ═══ -->
+    <!-- Death / respawn screen -->
     <div id="death-screen" style="display:none">
         <div class="death-scanlines"></div>
         <div class="death-content">

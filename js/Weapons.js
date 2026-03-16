@@ -1,29 +1,47 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CONFIG } from './Config.js';
+import { getWeaponConfig } from './ModelRegistry.js';
 
 class WeaponStrategy {
     constructor(type, config) {
-        this.type = type;
-        this.config = config;
-        this.mesh = null;
+        this.type   = type;
+        this.config = config;   // live reference — mutations are visible immediately
+        this.mesh   = null;
         this.lastFired = 0;
     }
 
     load() {
         return new Promise((resolve) => {
-            new GLTFLoader().load(this.config.MODEL, (gltf) => {
+            // Always read MODEL from the global CONFIG (it's the same GLB for all models)
+            const modelPath = CONFIG.WEAPONS[this.type.toUpperCase()].MODEL;
+            new GLTFLoader().load(modelPath, (gltf) => {
                 this.mesh = gltf.scene;
-                this.mesh.scale.set(this.config.SCALE, this.config.SCALE, this.config.SCALE);
-                this.mesh.position.set(...this.config.POS);
-                this.mesh.rotation.set(...this.config.ROT);
+                this._applyTransform();
                 resolve(this.mesh);
             }, undefined, () => resolve(null));
         });
     }
 
-    attach(bone) { if (this.mesh && bone) bone.add(this.mesh); }
-    detach(bone) { if (this.mesh && bone) bone.remove(this.mesh); }
+    /** Re-apply scale/pos/rot from the live config to the mesh. */
+    _applyTransform() {
+        if (!this.mesh) return;
+        this.mesh.scale.set(this.config.SCALE, this.config.SCALE, this.config.SCALE);
+        this.mesh.position.set(...this.config.POS);
+        this.mesh.rotation.set(...this.config.ROT);
+    }
+
+    attach(bone) {
+        if (this.mesh && bone) {
+            bone.add(this.mesh);
+            // Re-apply transform on every attach so per-model values are used
+            this._applyTransform();
+        }
+    }
+
+    detach(bone) {
+        if (this.mesh && bone) bone.remove(this.mesh);
+    }
 
     canFire(clock) {
         if (clock.elapsedTime - this.lastFired > this.config.FIRE_RATE) {
@@ -32,34 +50,48 @@ class WeaponStrategy {
         }
         return false;
     }
+
     fire(context) { throw new Error('Not implemented'); }
 }
 
 class GunWeapon extends WeaponStrategy {
-    constructor() { super('gun', CONFIG.WEAPONS.GUN); }
+    constructor(config) { super('gun', config); }
+
     fire({ player, beamPool, isRemote }) {
         let spawnPos;
         if (this.mesh && !isRemote) {
             spawnPos = this.mesh.localToWorld(new THREE.Vector3(0, 0, -5));
         } else {
-            spawnPos = player.mesh.position.clone(); spawnPos.y += 8; 
+            spawnPos = player.mesh.position.clone();
+            spawnPos.y += 8;
         }
 
         let aimDir;
-        if (isRemote) aimDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.targetPitch || 0, player.mesh.rotation.y, 0, 'YXZ'));
-        else { aimDir = new THREE.Vector3(); player.cameraPivot.getWorldDirection(aimDir); aimDir.negate(); }
+        if (isRemote) {
+            aimDir = new THREE.Vector3(0, 0, -1).applyEuler(
+                new THREE.Euler(player.targetPitch || 0, player.mesh.rotation.y, 0, 'YXZ')
+            );
+        } else {
+            aimDir = new THREE.Vector3();
+            player.cameraPivot.getWorldDirection(aimDir);
+            aimDir.negate();
+        }
 
         const beam = beamPool.fire(spawnPos, aimDir, false);
-        if (beam && isRemote) { beam.userData.isRemote = true; beam.material.color.setHex(0xff6600); }
+        if (beam && isRemote) {
+            beam.userData.isRemote = true;
+            beam.material.color.setHex(0xff6600);
+        }
     }
 }
 
 class MeleeWeapon extends WeaponStrategy {
-    constructor() { super('melee', CONFIG.WEAPONS.MELEE); }
+    constructor(config) { super('melee', config); }
+
     fire({ player, enemies, network, isRemote }) {
-        if (isRemote) return; 
+        if (isRemote) return;
         const attackOrigin = player.mesh.position.clone();
-        
+
         if (enemies) {
             enemies.forEach(enemy => {
                 if (!enemy.health.isDead && attackOrigin.distanceTo(enemy.mesh.position) < this.config.RANGE) {
@@ -78,11 +110,34 @@ class MeleeWeapon extends WeaponStrategy {
 }
 
 export class WeaponManager {
-    constructor(isRemote = false) {
-        this.isRemote = isRemote;
-        this.weapons = { gun: new GunWeapon(), melee: new MeleeWeapon() };
+    /**
+     * @param {boolean} isRemote
+     * @param {string}  modelId  — used to look up per-model weapon configs
+     */
+    constructor(isRemote = false, modelId = 't800') {
+        this.isRemote    = isRemote;
+        this.modelId     = modelId;
         this.currentType = 'gun';
-        this.handBone = null;
+        this.handBone    = null;
+
+        // Create strategies with the per-model config references
+        this.weapons = {
+            gun:   new GunWeapon(getWeaponConfig(modelId, 'gun')),
+            melee: new MeleeWeapon(getWeaponConfig(modelId, 'melee')),
+        };
+    }
+
+    /**
+     * Hot-swap the model's weapon configs (called on character/respawn swap).
+     * Updates config references and re-applies transforms to any loaded meshes.
+     */
+    setModelId(modelId) {
+        this.modelId = modelId;
+        this.weapons.gun.config   = getWeaponConfig(modelId, 'gun');
+        this.weapons.melee.config = getWeaponConfig(modelId, 'melee');
+        // Re-apply transforms so the currently-equipped weapon repositions
+        this.weapons.gun._applyTransform();
+        this.weapons.melee._applyTransform();
     }
 
     async init(handBone) {
@@ -91,7 +146,7 @@ export class WeaponManager {
         this.equip('gun');
     }
 
-    equip(type, prefix = 'ui-wep-') {
+    equip(type) {
         if (!this.weapons[type] || type === this.currentType) return;
         if (this.weapons[this.currentType]) this.weapons[this.currentType].detach(this.handBone);
 
@@ -102,10 +157,13 @@ export class WeaponManager {
             const updateUI = (pref) => {
                 const g = document.getElementById(`${pref}gun`);
                 const m = document.getElementById(`${pref}melee`);
-                if (g && m) { g.classList.toggle('active', type === 'gun'); m.classList.toggle('active', type === 'melee'); }
+                if (g && m) {
+                    g.classList.toggle('active', type === 'gun');
+                    m.classList.toggle('active', type === 'melee');
+                }
             };
             updateUI('ui-wep-');
-            updateUI('ui-wep-gun-pvp'); // Handle PVP overlay too
+            updateUI('ui-wep-gun-pvp');
         }
     }
 

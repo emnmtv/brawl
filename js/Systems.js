@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { getModel, getBoneName } from './ModelRegistry.js';
 
 export class HealthComponent {
     constructor(maxHealth, uiElementId) {
@@ -15,7 +16,6 @@ export class HealthComponent {
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) { this.currentHealth = 0; this.isDead = true; }
         if (this.uiElement) this.uiElement.style.width = (this.currentHealth / this.maxHealth * 100) + '%';
-        // Fire damage callback so main.js can show the indicator
         if (this.onDamage) this.onDamage(amount, sourcePos);
     }
 }
@@ -33,7 +33,7 @@ export class BeamPool {
             beam.userData = {
                 active: false, speed: 100, distance: 0,
                 isEnemy: false, isRemote: false,
-                sourcePos: null,               // set by Enemy so player.health.takeDamage gets direction
+                sourcePos: null,
                 direction: new THREE.Vector3()
             };
             scene.add(beam);
@@ -50,11 +50,11 @@ export class BeamPool {
         beam.lookAt(position.clone().add(direction));
         beam.userData.direction.copy(direction).normalize();
         beam.visible = true;
-        beam.userData.active = true;
+        beam.userData.active   = true;
         beam.userData.distance = 0;
-        beam.userData.isEnemy = isEnemy;
-        beam.userData.isRemote = false;   // reset on every reuse
-        beam.userData.sourcePos = null;   // reset on every reuse
+        beam.userData.isEnemy  = isEnemy;
+        beam.userData.isRemote = false;
+        beam.userData.sourcePos = null;
         beam.material.color.setHex(isEnemy ? 0xff3300 : 0x00ffcc);
 
         return beam;
@@ -68,12 +68,10 @@ export class BeamPool {
             beam.position.addScaledVector(beam.userData.direction, moveDist);
             beam.userData.distance += moveDist;
 
-            // Remote beams are visual-only — all damage handled server-side
+            // Remote beams are visual-only — damage is server-authoritative
             if (beam.userData.isRemote) {
                 if (beam.userData.distance > 300) {
-                    beam.visible = false;
-                    beam.userData.active = false;
-                    beam.userData.isRemote = false;
+                    beam.visible = false; beam.userData.active = false; beam.userData.isRemote = false;
                 }
                 return;
             }
@@ -81,10 +79,8 @@ export class BeamPool {
             if (beam.userData.isEnemy) {
                 if (player.health && !player.health.isDead && player.boundingBox) {
                     if (player.boundingBox.containsPoint(beam.position)) {
-                        // sourcePos passed through so the damage indicator knows direction
                         player.health.takeDamage(10, beam.userData.sourcePos || null);
-                        beam.visible = false;
-                        beam.userData.active = false;
+                        beam.visible = false; beam.userData.active = false;
                     }
                 }
             } else {
@@ -92,28 +88,30 @@ export class BeamPool {
                     if (!enemy.health.isDead && enemy.boundingBox) {
                         if (enemy.boundingBox.containsPoint(beam.position)) {
                             enemy.health.takeDamage(20);
-                            beam.visible = false;
-                            beam.userData.active = false;
+                            beam.visible = false; beam.userData.active = false;
                         }
                     }
                 });
             }
 
             if (beam.userData.distance > 300) {
-                beam.visible = false;
-                beam.userData.active = false;
+                beam.visible = false; beam.userData.active = false;
             }
         });
     }
 
-    deactivateBeam(beam) {
-        beam.visible = false;
-        beam.userData.active = false;
-    }
+    deactivateBeam(beam) { beam.visible = false; beam.userData.active = false; }
 }
 
 export class Enemy {
-    constructor(scene, x, z, modelUrl) {
+    /**
+     * @param {THREE.Scene} scene
+     * @param {number}      x
+     * @param {number}      z
+     * @param {string}      modelId  Key into MODEL_REGISTRY e.g. 't800'
+     */
+    constructor(scene, x, z, modelId = 't800') {
+        this.modelId = modelId;
         this.mesh = new THREE.Group();
         this.mesh.position.set(x, 0, z);
         scene.add(this.mesh);
@@ -121,26 +119,30 @@ export class Enemy {
         this.health = new HealthComponent(100, 'enemy-health-bar');
         this.boundingBox = new THREE.Box3();
 
-        this.speed = 10;
-        this.attackRange = 80;
-        this.fireRate = 0.6;
-        this.lastFired = 0;
+        this.speed = 10; this.attackRange = 80;
+        this.fireRate = 0.6; this.lastFired = 0;
         this.aiEnabled = true;
-        this.handBone = null;
-        this.mixer = null;
-        this.actions = {};
-        this.activeAction = null;
+        this.handBone = null; this.mixer = null;
+        this.actions = {}; this.activeAction = null;
 
-        new GLTFLoader().load(modelUrl, (gltf) => {
+        // Load via registry
+        const profile = getModel(modelId);
+        new GLTFLoader().load(profile.path, (gltf) => {
             const model = gltf.scene;
-            model.scale.set(10, 10, 10);
+            model.scale.setScalar(profile.scale);
+            model.rotation.y = profile.rootRotation ?? Math.PI;
+
+            // Resolve hand bone via registry
+            const handBoneName = getBoneName(modelId, 'hand_R');
             model.traverse(child => {
                 if (child.isMesh) child.frustumCulled = false;
-                if (child.name === 'bip_hand_R') this.handBone = child;
+                if (child.name === handBoneName) this.handBone = child;
             });
+
             this.mesh.add(model);
             this.mixer = new THREE.AnimationMixer(model);
             gltf.animations.forEach(clip => {
+                // Register by actual name (lowercased) — enough for the simple enemy AI
                 this.actions[clip.name.toLowerCase()] = this.mixer.clipAction(clip);
             });
             this.playAnim('idle');
@@ -182,11 +184,7 @@ export class Enemy {
         }
         if (!this.mixer) return;
 
-        if (!this.aiEnabled) {
-            this.playAnim('idle');
-            this.mixer.update(dt);
-            return;
-        }
+        if (!this.aiEnabled) { this.playAnim('idle'); this.mixer.update(dt); return; }
 
         this.mixer.update(dt);
         const distToPlayer = this.mesh.position.distanceTo(player.mesh.position);
@@ -196,8 +194,7 @@ export class Enemy {
             this.mesh.translateZ(this.speed * dt);
             this.playAnim(this.actions['run_forward'] ? 'run_forward' : 'idle');
         } else {
-            const attackAnim = this.actions['shoot_idle'] ? 'shoot_idle' : (this.actions['shoot'] ? 'shoot' : 'idle');
-            this.playAnim(attackAnim);
+            this.playAnim(this.actions['shoot_idle'] ? 'shoot_idle' : (this.actions['shoot'] ? 'shoot' : 'idle'));
 
             if (clock.elapsedTime - this.lastFired > this.fireRate) {
                 this.lastFired = clock.elapsedTime;
@@ -205,8 +202,6 @@ export class Enemy {
                 const aimTarget = player.mesh.position.clone().add(new THREE.Vector3(0, 5, 0));
                 const aimDir = new THREE.Vector3().subVectors(aimTarget, spawnPos).normalize();
                 const beam = beamPool.fire(spawnPos, aimDir, true);
-                // Tag the beam with this enemy's world position so BeamPool
-                // can pass it to player.health.takeDamage as sourcePos
                 if (beam) beam.userData.sourcePos = this.mesh.position.clone();
             }
         }

@@ -1,56 +1,203 @@
-export function detectAnimationSlots(clips, mixer) {
-    const actions = {};
-    clips.forEach(clip => {
-        const safeName = clip.name.toLowerCase();
-        actions[safeName] = mixer.clipAction(clip);
+import { getModel, logicalKeyForClip } from './ModelRegistry.js';
 
-        if (safeName.includes('shoot')) {
+/**
+ * ─────────────────────────────────────────────────────────────
+ *  buildActionMap(clips, mixer, modelId)
+ *
+ *  Builds a { logicalKey → AnimationAction } map so all game
+ *  code works with stable logical names regardless of what the
+ *  GLB actually calls its clips.
+ *
+ *  1. Each clip name is translated to a logical key via the registry.
+ *     Unknown clips fall back to their lowercased actual name.
+ *  2. A convenience alias under the actual name is also kept so
+ *     legacy / raw lookups still work.
+ *  3. Any shoot-family clip gets an automatic upper-body masked
+ *     variant keyed as <logicalKey>_upperbody.
+ *
+ *  Returns { actions, slots: { shoot } }
+ * ─────────────────────────────────────────────────────────────
+ */
+export function buildActionMap(clips, mixer, modelId) {
+    const profile    = getModel(modelId);
+    const upperBodyRx = profile.upperBodyPattern || /(spine|chest|arm|hand|head|neck)/;
+
+    const actions = {};
+    let shootSlotKey = 'shoot_idle';
+
+    clips.forEach(clip => {
+        const actualLower = clip.name.toLowerCase();
+        const logicalKey  = logicalKeyForClip(modelId, clip.name) || actualLower;
+
+        actions[logicalKey] = mixer.clipAction(clip);
+
+        // Alias under actual name — keeps raw-name lookups working
+        if (logicalKey !== actualLower) actions[actualLower] = actions[logicalKey];
+
+        // Auto upper-body mask for shoot/fire family clips
+        if (logicalKey.includes('shoot') || logicalKey.includes('fire')) {
+            shootSlotKey = logicalKey;
             const maskedClip = clip.clone();
-            maskedClip.name = safeName + '_upperbody';
-            maskedClip.tracks = maskedClip.tracks.filter(t => t.name.toLowerCase().match(/(spine|chest|arm|hand|head|neck)/));
+            maskedClip.name   = logicalKey + '_upperbody';
+            maskedClip.tracks = maskedClip.tracks.filter(
+                t => t.name.toLowerCase().match(upperBodyRx)
+            );
             actions[maskedClip.name] = mixer.clipAction(maskedClip);
         }
     });
-    return { slots: { shoot: 'shoot_idle' }, actions };
+
+    return { actions, slots: { shoot: shootSlotKey } };
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────
+ *  resolveAnimationTarget(state, actions)
+ *
+ *  Resolves the best logical animation key for the current
+ *  movement / weapon / combat state.
+ *
+ *  FALLBACK RULE (applied everywhere):
+ *    run_* missing  → try the equivalent walk_*
+ *    walk_* missing → try the base direction (walk_forward / walk_backward …)
+ *    base missing   → idle
+ *
+ *  Full logical key list this function may return:
+ *    Gun stance
+ *      idle
+ *      walk_forward  walk_backward  walk_left  walk_right
+ *      walk_forward_left   walk_forward_right
+ *      walk_backward_left  walk_backward_right
+ *      run_forward         run_forward_left    run_forward_right
+ *      run_backward        run_backward_left   run_backward_right
+ *      run_left            run_right
+ *      run_forward_firing
+ *      run_forward_jump    stationary_jump
+ *      shoot_idle
+ *    Melee stance  (same but prefixed melee_)
+ *      melee_idle
+ *      melee_walk_forward  melee_walk_back  melee_walk_left  melee_walk_right
+ *      melee_walk_forward_left   melee_walk_forward_right
+ *      melee_walk_backward_left  melee_walk_backward_right
+ *      melee_run_forward         melee_run_forward_left    melee_run_forward_right
+ *      melee_run_backward        melee_run_backward_left   melee_run_backward_right
+ *      melee_run_left            melee_run_right
+ *      melee_combo_1  melee_combo_2  melee_kick
+ * ─────────────────────────────────────────────────────────────
+ */
 export function resolveAnimationTarget(state, actions) {
-    const { isMoving, isShooting, isJumping, forward, backward, left, right, isSprinting, weaponType, ultimate } = state;
-    
-    // 1. Ultimate Override
-    if (ultimate && actions[ultimate]) return ultimate;
+    const {
+        isMoving, isShooting, isJumping,
+        forward, backward, left, right,
+        isSprinting, weaponType, ultimate,
+    } = state;
 
-    // 2. Jumping
+    // pick() — return first key that exists in actions, or null
+    const has  = k => k != null && !!actions[k];
+    const pick = (...keys) => keys.find(has) ?? null;
+
+    // ── 1. Ultimate override ──────────────────────────────────
+    if (ultimate && has(ultimate)) return ultimate;
+
+    // ── 2. Jump ──────────────────────────────────────────────
     if (isJumping) {
-        const jumpAnim = (isSprinting || forward) ? 'run_forward_jump' : 'stationary_jump';
-        if (actions[jumpAnim]) return jumpAnim;
+        return pick(
+            (isSprinting || forward) ? 'run_forward_jump' : 'stationary_jump',
+            'idle'
+        );
     }
 
-    // 3. Melee Stance Locomotion
+    // ── 3. Melee stance ──────────────────────────────────────
     if (weaponType === 'melee') {
         if (isMoving) {
-            if (forward && isSprinting) return actions['melee_run_forward'] ? 'melee_run_forward' : 'melee_walk_forward';
-            if (forward) return actions['melee_walk_forward'] ? 'melee_walk_forward' : 'melee_idle';
-            if (backward) return actions['melee_walk_back'] ? 'melee_walk_back' : 'melee_idle';
-            if (left) return actions['melee_walk_left'] ? 'melee_walk_left' : 'melee_idle';
-            if (right) return actions['melee_walk_right'] ? 'melee_walk_right' : 'melee_idle';
+            const p = isSprinting;
+
+            // forward combos
+            if (forward && left)  return pick(
+                p ? 'melee_run_forward_left'  : 'melee_walk_forward_left',
+                p ? 'melee_run_forward'       : 'melee_walk_forward_left',
+                'melee_walk_forward_left', 'melee_walk_forward', 'melee_idle', 'idle'
+            );
+            if (forward && right) return pick(
+                p ? 'melee_run_forward_right' : 'melee_walk_forward_right',
+                p ? 'melee_run_forward'       : 'melee_walk_forward_right',
+                'melee_walk_forward_right', 'melee_walk_forward', 'melee_idle', 'idle'
+            );
+            if (forward) return pick(
+                p ? 'melee_run_forward'  : 'melee_walk_forward',
+                'melee_walk_forward', 'melee_idle', 'idle'
+            );
+
+            // backward combos
+            if (backward && left)  return pick(
+                p ? 'melee_run_backward_left'  : 'melee_walk_backward_left',
+                p ? 'melee_run_backward'       : 'melee_walk_backward_left',
+                'melee_walk_backward_left', 'melee_walk_back', 'melee_idle', 'idle'
+            );
+            if (backward && right) return pick(
+                p ? 'melee_run_backward_right' : 'melee_walk_backward_right',
+                p ? 'melee_run_backward'       : 'melee_walk_backward_right',
+                'melee_walk_backward_right', 'melee_walk_back', 'melee_idle', 'idle'
+            );
+            if (backward) return pick(
+                p ? 'melee_run_backward' : 'melee_walk_back',
+                'melee_walk_back', 'melee_idle', 'idle'
+            );
+
+            // pure strafe
+            if (left)  return pick(
+                p ? 'melee_run_left'  : 'melee_walk_left',
+                'melee_walk_left', 'melee_idle', 'idle'
+            );
+            if (right) return pick(
+                p ? 'melee_run_right' : 'melee_walk_right',
+                'melee_walk_right', 'melee_idle', 'idle'
+            );
         }
-        return actions['melee_idle'] ? 'melee_idle' : 'idle';
+        return pick('melee_idle', 'idle');
     }
 
-    // 4. Gun / Default Stance Locomotion
+    // ── 4. Gun / default stance ───────────────────────────────
     if (isMoving) {
-        if (forward) {
-            if (isSprinting) return (isShooting && actions['run_forward_firing']) ? 'run_forward_firing' : 'run_forward';
-            if (left) return actions['walk_forward_left'] ? 'walk_forward_left' : 'walk_forward';
-            if (right) return actions['walk_forward_right'] ? 'walk_forward_right' : 'walk_forward';
-            return 'walk_forward';
-        }
-        if (backward) return left ? 'walk_backward_left' : right ? 'walk_backward_right' : 'walk_backward';
-        if (left) return 'walk_left';
-        if (right) return 'walk_right';
+        const p = isSprinting;
+
+        // forward combos
+        if (forward && left) return pick(
+            p ? 'run_forward_left'   : 'walk_forward_left',
+            p ? 'run_forward'        : 'walk_forward_left',
+            'walk_forward_left', 'walk_forward', 'idle'
+        );
+        if (forward && right) return pick(
+            p ? 'run_forward_right'  : 'walk_forward_right',
+            p ? 'run_forward'        : 'walk_forward_right',
+            'walk_forward_right', 'walk_forward', 'idle'
+        );
+        if (forward) return pick(
+            p && isShooting ? 'run_forward_firing' : null,
+            p ? 'run_forward'   : 'walk_forward',
+            'walk_forward', 'idle'
+        );
+
+        // backward combos
+        if (backward && left) return pick(
+            p ? 'run_backward_left'  : 'walk_backward_left',
+            p ? 'run_backward'       : 'walk_backward_left',
+            'walk_backward_left', 'walk_backward', 'idle'
+        );
+        if (backward && right) return pick(
+            p ? 'run_backward_right' : 'walk_backward_right',
+            p ? 'run_backward'       : 'walk_backward_right',
+            'walk_backward_right', 'walk_backward', 'idle'
+        );
+        if (backward) return pick(
+            p ? 'run_backward' : 'walk_backward',
+            'walk_backward', 'idle'
+        );
+
+        // pure strafe
+        if (left)  return pick(p ? 'run_left'  : 'walk_left',  'walk_left',  'idle');
+        if (right) return pick(p ? 'run_right' : 'walk_right', 'walk_right', 'idle');
     }
 
-    if (isShooting) return actions['shoot_idle'] ? 'shoot_idle' : 'idle';
-    return 'idle';
+    if (isShooting) return pick('shoot_idle', 'idle');
+    return pick('idle');
 }
