@@ -189,6 +189,8 @@ export class Character {
         act.reset();
         act.setLoop(THREE.LoopOnce, 1);
         act.clampWhenFinished = true;
+        // Play equip/unequip at 2.5x speed for snappier feel
+        act.setEffectiveTimeScale(2.5);
         act.setEffectiveWeight(1).play();
         if (this.activeAction && this.activeAction !== act)
             this.activeAction.crossFadeTo(act, 0.1, true);
@@ -198,7 +200,7 @@ export class Character {
 
         // Safety: if the 'finished' event never fires (zero-duration clip or edge case)
         // release the swap lock after clip duration + 200ms grace period.
-        const dur = (act.getClip()?.duration ?? 0.5) * 1000 + 200;
+        const dur = ((act.getClip()?.duration ?? 0.5) * 1000 + 200) / 2.5;
         clearTimeout(this._swapTimeout);
         this._swapTimeout = setTimeout(() => {
             if (this._swapAction === act) {

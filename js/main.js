@@ -56,6 +56,61 @@ function _buildMatCache(player) {
     });
 }
 
+// Handle ESC to exit pointer lock and click to re-enter
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.pointerLockElement === document.body) {
+        document.exitPointerLock();
+    }
+});
+
+// Re-enter pointer lock on click if in game (not in menu), with error handling
+renderer.domElement.addEventListener('click', () => {
+    const menuVisible = document.getElementById('main-menu').style.display !== 'none' ||
+                        document.getElementById('char-card-grid').offsetParent !== null;
+    if (!menuVisible && document.pointerLockElement !== document.body) {
+        try {
+            const lockPromise = document.body.requestPointerLock();
+            // If browser returns a promise (modern browsers)
+            if (lockPromise && typeof lockPromise.then === 'function') {
+                lockPromise.catch(err => {
+                    console.warn('Pointer lock denied:', err.message);
+                    showPointerLockError(err);
+                });
+            }
+        } catch (err) {
+            console.warn('Pointer lock error:', err.message);
+            showPointerLockError(err);
+        }
+    }
+});
+
+// Show pointer lock error to user (optional UI feedback)
+function showPointerLockError(err) {
+    let el = document.getElementById('pointerlock-error');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'pointerlock-error';
+        el.style.position = 'fixed';
+        el.style.top = '20px';
+        el.style.left = '50%';
+        el.style.transform = 'translateX(-50%)';
+        el.style.background = 'rgba(200,0,0,0.9)';
+        el.style.color = '#fff';
+        el.style.padding = '10px 24px';
+        el.style.borderRadius = '8px';
+        el.style.zIndex = 9999;
+        el.style.fontSize = '1.1em';
+        document.body.appendChild(el);
+    }
+    el.textContent = 'Pointer lock failed: ' + (err && err.message ? err.message : err);
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+// Listen for pointerlockerror event globally
+document.addEventListener('pointerlockerror', (e) => {
+    showPointerLockError(e);
+});
 function updateSpringCamera(player, camera, inputManager, collisionMeshes) {
     const sc    = player.sizeConfig;
     // Camera yaw is driven by mouse ONLY — independent of character facing.

@@ -33,7 +33,8 @@ export class InputManager {
         document.body.addEventListener('click', (e) => {
             if(e.target.closest('#dev-tuner') || !document.getElementById('ui-layer').style.display) return;
             this.audioManager.resumeContext();
-            document.body.requestPointerLock().catch(err => console.warn('Pointer lock denied:', err.message));
+            // Pointer lock is now only requested when actual game starts
+            // document.body.requestPointerLock().catch(err => console.warn('Pointer lock denied:', err.message));
         });
 
         document.addEventListener('pointerlockchange', () => {
