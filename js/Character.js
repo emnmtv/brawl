@@ -37,8 +37,13 @@ export class Character {
 
         this.mixer             = null; this.actions = {}; this.slots = {};
         this.currentUltimate   = null; this.ultimateTimer = 0;
-        this.isSwinging        = false; this.swingProgress = 0;
-        this.activeSwingParams = null;
+        // Melee state
+        this.meleeAttacking    = false;    // true while a one-shot attack anim is playing
+        this.meleeAttackAction = null;     // the AnimationAction currently playing
+        this._meleeHitTargets  = new Set(); // targets already hit this swing (reset per swing)
+        this._meleeWasInWindow = false;
+        this.meleeHitBox       = new THREE.Box3(); // world-space damage box (read by main.js)
+        this.meleeHitBoxActive = false;            // true only during the hit window
 
         const profile = getModel(modelId);
         new GLTFLoader().load(profile.path, (gltf) => {
@@ -85,6 +90,16 @@ export class Character {
             }
 
             this.mixer = new THREE.AnimationMixer(model);
+
+            // One-shot melee animations fire a 'finished' event when they complete.
+            // We clear the attack lock here so the next idle/walk crossfade can run.
+            // IMPORTANT: do NOT set activeAction = null here — playAction() needs it
+            // as the crossfade source so the frozen last-frame pose fades out cleanly.
+            this.mixer.addEventListener('finished', () => {
+                this.meleeAttacking    = false;
+                this.meleeAttackAction = null;
+                this.meleeHitBoxActive = false;
+            });
 
             const weaponBoneName = getBoneName(modelId, CONFIG.WEAPONS.GUN.WEAPON_BONE);
             const weaponBone = model.getObjectByName(weaponBoneName);
@@ -238,7 +253,8 @@ export class Character {
                 forward: animFwd, backward: animBack, left: animLeft, right: animRight, isSprinting,
                 weaponType: this.weaponManager.currentType, ultimate: this.currentUltimate,
             }, this.actions);
-            if (targetAnim) this.playAction(targetAnim);
+            // Don't interrupt a playing one-shot melee attack
+            if (targetAnim && !this.meleeAttacking) this.playAction(targetAnim);
 
             const upperKey = this.weaponManager.currentType === 'gun' ? this.slots.shoot + '_upperbody' : null;
             if (upperKey && this.actions[upperKey] && !this.currentUltimate) {
@@ -248,58 +264,110 @@ export class Character {
             this.mixer.update(dt);
 
             // ── Head + spine aim tracking ─────────────────────────────
-            // Applied AFTER mixer.update() so it overrides the animation pose.
-            // Pitch is distributed: head takes the most, each spine bone takes
-            // an equal share of the remainder. This works for both single-bone
-            // rigs (Mixamo) and multi-bone rigs (T-800's 4 spine segments).
             const pitch = inputManager.mouseLookY;
             if (this._headBone) this._headBone.rotation.x += pitch * 0.55;
             if (this._spineBones && this._spineBones.length > 0) {
-                // Share remaining pitch evenly across all spine bones found
                 const spineShare = (pitch * 0.45) / this._spineBones.length;
                 this._spineBones.forEach(bone => { bone.rotation.x += spineShare; });
             }
+
+            // ── Animation-timed melee damage box ──────────────────────
+            // The box is HOT only between hitWindowStart and hitWindowEnd of the clip.
+            // Each target can only be hit once per swing (tracked in _meleeHitTargets).
+            if (this.meleeAttacking && this.meleeAttackAction) {
+                const conf  = this.weaponManager.weapons.melee.config;
+                const db    = conf.damageBox || {};
+                const clip  = this.meleeAttackAction.getClip();
+                const t     = clip.duration > 0
+                    ? Math.min(this.meleeAttackAction.time / clip.duration, 1)
+                    : 0;
+                const wStart = db.hitWindowStart ?? 0.25;
+                const wEnd   = db.hitWindowEnd   ?? 0.72;
+                const inWin  = t >= wStart && t <= wEnd;
+
+                // Build world-space box from weapon mesh + local offset
+                const wMesh  = this.weaponManager.weapons.melee.mesh;
+                const off    = db.offset || [0, 0, -8];
+                const sz     = db.size   || [4, 4, 14];
+                const origin = wMesh
+                    ? wMesh.localToWorld(new THREE.Vector3(off[0], off[1], off[2]))
+                    : this.mesh.position.clone().setY(
+                          this.mesh.position.y + (this.sizeConfig.height ?? 12) * 0.5
+                      );
+                this.meleeHitBox.setFromCenterAndSize(
+                    origin, new THREE.Vector3(sz[0], sz[1], sz[2])
+                );
+                this.meleeHitBoxActive = inWin;
+
+                // Reset hit list on leading edge of window so re-entering doesn't re-hit
+                if (inWin && !this._meleeWasInWindow) this._meleeHitTargets.clear();
+                this._meleeWasInWindow = inWin;
+
+                if (inWin) {
+                    if (enemies) enemies.forEach(enemy => {
+                        if (!enemy.health.isDead &&
+                            !this._meleeHitTargets.has(enemy) &&
+                            enemy.boundingBox &&
+                            this.meleeHitBox.intersectsBox(enemy.boundingBox)) {
+                            enemy.health.takeDamage(conf.DAMAGE ?? 50);
+                            this._meleeHitTargets.add(enemy);
+                        }
+                    });
+                    if (network) network.remotePlayers.forEach((rp, id) => {
+                        if (!rp.isDead &&
+                            !this._meleeHitTargets.has(id) &&
+                            rp.boundingBox &&
+                            this.meleeHitBox.intersectsBox(rp.boundingBox)) {
+                            network.reportHit(id, conf.DAMAGE ?? 50);
+                            this._meleeHitTargets.add(id);
+                        }
+                    });
+                }
+            } else {
+                this.meleeHitBoxActive = false;
+            }
         }
 
-        // Procedural Swing — read config from the per-model weapon config
-        if (this.weaponManager.currentType === 'melee' && !this.currentUltimate) {
-            const conf = this.weaponManager.weapons.melee.config;  // ← per-model
-            const swingBoneLogicals = CONFIG.WEAPONS.MELEE.SWING_BONES || [];
-            const swingBones = swingBoneLogicals.map(logical => this.mesh.getObjectByName(getBoneName(this.modelId, logical)));
-            if (swingBones.some(b => b)) {
-                const isPreviewing = inputManager.isNoclip;
-                if (inputManager.isShooting && !this.isSwinging && !isPreviewing) {
-                    this.isSwinging = true; this.swingProgress = 0;
-                    const swings = conf.SWINGS || CONFIG.WEAPONS.MELEE.SWINGS;
-                    this.activeSwingParams = swings[Math.floor(Math.random() * swings.length)];
-                }
-                if (this.isSwinging || isPreviewing) {
-                    const swingSpeed = conf.SWING_SPEED ?? CONFIG.WEAPONS.MELEE.SWING_SPEED;
-                    if (this.isSwinging) {
-                        this.swingProgress += dt * swingSpeed;
-                        if (this.swingProgress > Math.PI) { this.isSwinging = false; this.swingProgress = 0; }
-                    }
-                    const swings = conf.SWINGS || CONFIG.WEAPONS.MELEE.SWINGS;
-                    const swingData = this.activeSwingParams || swings[0];
-                    const t = isPreviewing ? 0.6 : Math.min(this.swingProgress / Math.PI, 1.0);
-                    const lerp = (a,b,f) => a+(b-a)*f;
-                    const frame = (pA,pB,f,i) => [lerp(pA[i][0],pB[i][0],f), lerp(pA[i][1],pB[i][1],f), lerp(pA[i][2],pB[i][2],f)];
-                    swingBones.forEach((bone, i) => {
-                        if (!bone) return;
-                        let r;
-                        if (t < 0.2)      r = frame(swingData.address,   swingData.backswing,     t / 0.2,       i);
-                        else if (t < 0.4) r = frame(swingData.backswing,  swingData.downswing,    (t-0.2)/0.2,   i);
-                        else if (t < 0.6) r = frame(swingData.downswing,  swingData.impact,       (t-0.4)/0.2,   i);
-                        else              r = frame(swingData.impact,      swingData.followThrough,(t-0.6)/0.4,   i);
-                        bone.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(r[0],r[1],r[2])));
-                    });
+        // ── Melee attack: trigger one-shot GLB animation on left-click ────────
+        if (this.weaponManager.currentType === 'melee' && !this.currentUltimate && !inputManager.isNoclip) {
+            if (inputManager.isShooting && !this.meleeAttacking) {
+                const candidates = [
+                    'melee_attack_1', 'melee_attack_2', 'melee_attack_3',
+                    'melee_combo_1',  'melee_combo_2',  'melee_kick',
+                ];
+                const available = candidates.filter(k => !!this.actions[k]);
+                const meleeWep  = this.weaponManager.weapons.melee;
+
+                if (available.length > 0 && meleeWep.canFire(clock)) {
+                    const key    = available[Math.floor(Math.random() * available.length)];
+                    const action = this.actions[key];
+
+                    action.reset();
+                    action.setLoop(THREE.LoopOnce, 1);
+                    action.clampWhenFinished = true;
+                    action.setEffectiveWeight(1).play();
+
+                    if (this.activeAction && this.activeAction !== action)
+                        this.activeAction.crossFadeTo(action, 0.12, true);
+
+                    this.activeAction      = action;
+                    this.meleeAttacking    = true;
+                    this.meleeAttackAction = action;
+                    this._meleeHitTargets  = new Set();
+                    this._meleeWasInWindow = false;
+
+                    audioManager.playMeleeSwoosh();
                 }
             }
         }
 
+        // ── Gun fire ──────────────────────────────────────────────────────────
         if (inputManager.isShooting && !this.currentUltimate && !inputManager.isNoclip) {
-            const fired = this.weaponManager.attemptFire(clock, { player: this, beamPool, enemies, network, inputManager, isRemote: false });
-            if (fired && this.weaponManager.currentType === 'melee') audioManager.playMeleeSwoosh();
+            if (this.weaponManager.currentType === 'gun') {
+                this.weaponManager.attemptFire(clock, {
+                    player: this, beamPool, enemies, network, isRemote: false,
+                });
+            }
         }
     }
 }

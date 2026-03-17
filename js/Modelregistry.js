@@ -66,6 +66,11 @@ export const MODEL_REGISTRY = {
             melee_combo_1:          'melee_combo_1',
             melee_combo_2:          'melee_combo_2',
             melee_kick:             'melee_kick',
+            // Basic left-click attack animations — map to your actual GLB clip names.
+            // First candidate that exists in the loaded GLB wins.
+            melee_attack_1: ['melee_1', 'Melee1', 'melee_attack_1', 'melee_combo_1'],
+            melee_attack_2: ['melee_2', 'Melee2', 'melee_attack_2', 'melee_combo_2'],
+            melee_attack_3: ['melee_3', 'Melee3', 'melee_attack_3', 'melee_kick'],
         },
        // Model: t800
 physics: {
@@ -103,32 +108,17 @@ physics: {
                 RANGE: 20,
                 DAMAGE: 50,
                 SWING_SPEED: 18,
-                SWINGS: [
-                    {
-                        name: 'Standard Slash',
-                        address:       [ [0.3,  0.0,  0.1],  [0.4,  0.0,  0.0],  [0.1,  0.0,  0.2]  ],
-                        backswing:     [ [1.2,  0.9, -0.4],  [1.6,  0.3,  0.1],  [0.9,  0.4,  1.4]  ],
-                        downswing:     [ [0.9, -0.2,  0.5],  [1.1,  0.1,  0.0],  [0.7,  0.2,  1.1]  ],
-                        impact:        [ [0.5, -0.8,  1.1],  [0.1, -0.1,  0.0],  [-0.3, 0.0,  0.3]  ],
-                        followThrough: [ [-0.4,-1.3,  1.5],  [0.7,  0.0,  0.3],  [0.4, -0.3,  0.9]  ],
-                    },
-                    {
-                        name: 'Overhead Heavy Chop',
-                        address:       [ [0.3,  0.0,  0.1],  [0.4,  0.0,  0.0],  [0.1,  0.0,  0.2]  ],
-                        backswing:     [ [2.0,  0.0, -0.2],  [1.8,  0.0,  0.0],  [1.0,  0.0,  0.5]  ],
-                        downswing:     [ [1.0,  0.0,  0.0],  [1.0,  0.0,  0.0],  [0.5,  0.0,  0.0]  ],
-                        impact:        [ [0.0,  0.0,  0.2],  [0.1,  0.0,  0.0],  [-0.5, 0.0,  0.0]  ],
-                        followThrough: [ [-0.5, 0.2,  0.5],  [0.5,  0.0,  0.0],  [-0.2, 0.0,  0.0]  ],
-                    },
-                    {
-                        name: 'Underhand Uppercut',
-                        address:       [ [0.3,  0.0,  0.1],  [0.4,  0.0,  0.0],  [0.1,  0.0,  0.2]  ],
-                        backswing:     [ [-0.5, 0.5, -0.5],  [0.5,  0.0,  0.0],  [0.2, -0.5,  0.5]  ],
-                        downswing:     [ [0.0,  0.2,  0.0],  [0.2,  0.0,  0.0],  [0.0,  0.0,  0.0]  ],
-                        impact:        [ [1.0, -0.5,  1.0],  [0.1,  0.0,  0.0],  [-0.2, 0.5,  0.0]  ],
-                        followThrough: [ [1.5, -0.8,  1.2],  [1.0,  0.0,  0.0],  [0.0,  0.8,  0.0]  ],
-                    },
-                ],
+                // Damage box — world-space hitbox active only during hit window.
+                // offset: local offset from weapon mesh origin toward blade tip (Z = forward/negative)
+                // size:   full extents of the box (width, height, depth along blade)
+                // hitWindowStart/End: fraction [0-1] of the clip duration when box deals damage
+                damageBox: {
+                        offset:         [0, 0, -8],
+                        size:           [4, 4, 14],
+                    hitWindowStart: 0.25,
+                    hitWindowEnd:   0.72,
+                },
+                // Optional: define multiple swings with different animation timing and damage box configs.
             },
         },
     },
@@ -170,6 +160,9 @@ physics: {
             melee_run_left:         'run_left',
             melee_walk_right:       'walk_right',
             melee_run_right:        'run_right',
+            melee_attack_1: ['melee_1', ],
+            melee_attack_2: ['melee_2', ],
+            melee_attack_3: ['melee_3', ],
 
         },
        // Model: walterwhite
@@ -207,6 +200,12 @@ physics: {
     RANGE: 12,
     DAMAGE: 50,
     SWING_SPEED: 18,
+    damageBox: {
+        offset:         [-16.900, -11.300, -6.000],
+        size:           [1.800, 5.700, 1.200],
+        hitWindowStart: 0.25,
+        hitWindowEnd:   0.72,
+    },
                 SWINGS: [
                     {
                         name: 'Standard Slash',
@@ -291,6 +290,13 @@ function _deepCloneWeaponCfg(cfg) {
         POS:           cfg.POS           ? [...cfg.POS]           : [0, 0, 0],
         ROT:           cfg.ROT           ? [...cfg.ROT]           : [0, 0, 0],
         BULLET_OFFSET: cfg.BULLET_OFFSET ? [...cfg.BULLET_OFFSET] : [0, 0, -5],
+        ...(cfg.damageBox ? {
+            damageBox: {
+                ...cfg.damageBox,
+                offset: cfg.damageBox.offset ? [...cfg.damageBox.offset] : [0, 0, -8],
+                size:   cfg.damageBox.size   ? [...cfg.damageBox.size]   : [4, 4, 10],
+            }
+        } : {}),
         ...(cfg.SWINGS ? {
             SWINGS: cfg.SWINGS.map(s => ({
                 ...s,

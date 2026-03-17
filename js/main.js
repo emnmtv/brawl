@@ -172,7 +172,7 @@ function updateSpringCamera(player, camera, inputManager, collisionMeshes) {
         _charMaterials.forEach(m => { m.opacity = opacity; });
     }
 }
-let playerBoxHelper = null, enemyBoxHelper = null, showHitbox = false, deathHandled = false;
+let playerBoxHelper = null, enemyBoxHelper = null, meleeBoxHelper = null, showHitbox = false, deathHandled = false;
 let selectedModelId = null, pendingMode = null;
 
 // ═══════════════════════════════════════════════════
@@ -429,17 +429,99 @@ window.addEventListener('keydown', e=>{ if((e.code==='Digit1'||e.code==='Digit2'
 let activeTunerTab = 'weapon';
 window.switchTunerTab = function(tab) {
     activeTunerTab = tab;
-    document.getElementById('tuner-tab-weapon').style.display  = tab === 'weapon'  ? 'block' : 'none';
-    document.getElementById('tuner-tab-physics').style.display = tab === 'physics' ? 'block' : 'none';
-    document.getElementById('tab-btn-weapon').style.background  = tab === 'weapon'  ? '#ffaa00' : '#333';
-    document.getElementById('tab-btn-weapon').style.color       = tab === 'weapon'  ? 'black'   : '#aaa';
-    document.getElementById('tab-btn-physics').style.background = tab === 'physics' ? '#00ffcc' : '#333';
-    document.getElementById('tab-btn-physics').style.color      = tab === 'physics' ? 'black'   : '#aaa';
-    document.getElementById('tab-btn-weapon').style.border      = tab === 'weapon'  ? 'none' : '1px solid #555';
-    document.getElementById('tab-btn-physics').style.border     = tab === 'physics' ? 'none' : '1px solid #555';
-    if (tab === 'weapon')  { refreshTunerUI(); }
-    if (tab === 'physics') { refreshPhysicsTuner(); }
+    const tabs   = ['weapon', 'melee', 'physics'];
+    const colors = { weapon:'#ffaa00', melee:'#ff6600', physics:'#00ffcc' };
+    tabs.forEach(t => {
+        const panel = document.getElementById('tuner-tab-'+t);
+        const btn   = document.getElementById('tab-btn-'+t);
+        if (!panel || !btn) return;
+        const active = tab === t;
+        panel.style.display  = active ? 'block' : 'none';
+        btn.style.background = active ? colors[t] : '#333';
+        btn.style.color      = active ? 'black'   : '#aaa';
+        btn.style.border     = active ? 'none'    : '1px solid #555';
+    });
+    if (tab === 'weapon')  refreshTunerUI();
+    if (tab === 'melee')   refreshMeleeTuner();
+    if (tab === 'physics') refreshPhysicsTuner();
 };
+
+// ── Melee damage-box tuner ────────────────────────────────────
+const meleeIds = ['damage','range','fireRate',
+                  'dbOffX','dbOffY','dbOffZ',
+                  'dbSzX','dbSzY','dbSzZ',
+                  'dbWinStart','dbWinEnd'];
+
+function initMeleeTuner() {
+    meleeIds.forEach(id => {
+        const s = document.getElementById('mt-'+id);
+        const n = document.getElementById('mt-'+id+'-num');
+        if (!s || !n) return;
+        const sync = e => { const v=parseFloat(e.target.value); s.value=v; n.value=v; applyMeleeTuner(); };
+        s.addEventListener('input', sync);
+        n.addEventListener('input', sync);
+    });
+}
+
+function refreshMeleeTuner() {
+    if (!player) return;
+    const cfg = player.weaponManager.weapons.melee.config;
+    const db  = cfg.damageBox || {};
+    const set = (id, v) => {
+        const s = document.getElementById('mt-'+id);
+        const n = document.getElementById('mt-'+id+'-num');
+        if (s && n) { s.value = v; n.value = parseFloat(v).toFixed(3); }
+    };
+    set('damage',     cfg.DAMAGE      ?? 50);
+    set('range',      cfg.RANGE       ?? 20);
+    set('fireRate',   cfg.FIRE_RATE   ?? 0.4);
+    set('dbOffX',    (db.offset??[0,0,-8])[0]);
+    set('dbOffY',    (db.offset??[0,0,-8])[1]);
+    set('dbOffZ',    (db.offset??[0,0,-8])[2]);
+    set('dbSzX',     (db.size??[4,4,14])[0]);
+    set('dbSzY',     (db.size??[4,4,14])[1]);
+    set('dbSzZ',     (db.size??[4,4,14])[2]);
+    set('dbWinStart', db.hitWindowStart ?? 0.25);
+    set('dbWinEnd',   db.hitWindowEnd   ?? 0.72);
+    generateMeleeCode();
+}
+
+function applyMeleeTuner() {
+    if (!player) return;
+    const cfg = player.weaponManager.weapons.melee.config;
+    const g   = id => { const el=document.getElementById('mt-'+id); return el ? parseFloat(el.value) : 0; };
+    cfg.DAMAGE    = g('damage');
+    cfg.RANGE     = g('range');
+    cfg.FIRE_RATE = g('fireRate');
+    if (!cfg.damageBox) cfg.damageBox = {};
+    cfg.damageBox.offset         = [g('dbOffX'), g('dbOffY'), g('dbOffZ')];
+    cfg.damageBox.size           = [g('dbSzX'),  g('dbSzY'),  g('dbSzZ')];
+    cfg.damageBox.hitWindowStart = g('dbWinStart');
+    cfg.damageBox.hitWindowEnd   = g('dbWinEnd');
+    generateMeleeCode();
+}
+
+function generateMeleeCode() {
+    if (!player) return;
+    const cfg = player.weaponManager.weapons.melee.config;
+    const db  = cfg.damageBox || {};
+    const mid = player.modelId;
+    const f   = v => parseFloat(v).toFixed(3);
+    const off = db.offset || [0,0,-8];
+    const sz  = db.size   || [4,4,14];
+    let code  = `// Model: ${mid}  Weapon: MELEE\n`;
+    code += `melee: {\n`;
+    code += `    DAMAGE:    ${f(cfg.DAMAGE   ?? 50)},\n`;
+    code += `    RANGE:     ${f(cfg.RANGE    ?? 20)},\n`;
+    code += `    FIRE_RATE: ${f(cfg.FIRE_RATE ?? 0.4)},\n`;
+    code += `    damageBox: {\n`;
+    code += `        offset:         [${off.map(f).join(', ')}],\n`;
+    code += `        size:           [${sz.map(f).join(', ')}],\n`;
+    code += `        hitWindowStart: ${f(db.hitWindowStart ?? 0.25)},\n`;
+    code += `        hitWindowEnd:   ${f(db.hitWindowEnd   ?? 0.72)},\n`;
+    code += `    },\n}`;
+    document.getElementById('tuner-code').innerText = code;
+}
 
 // ── Physics tuner ─────────────────────────────────────────────
 const physIds = ['walkSpeed','runMultiplier','stepRate','gravity','jumpStrength',
@@ -554,6 +636,11 @@ function initHitboxHelpers() {
     if(playerBoxHelper) scene.remove(playerBoxHelper);
     playerBoxHelper=new THREE.Box3Helper(player.boundingBox,0x00ffcc); playerBoxHelper.visible=false; scene.add(playerBoxHelper);
     if(enemy&&gameMode==='dev'){if(enemyBoxHelper)scene.remove(enemyBoxHelper);enemyBoxHelper=new THREE.Box3Helper(enemy.boundingBox,0xff3300);enemyBoxHelper.visible=false;scene.add(enemyBoxHelper);}
+    // Melee damage box — bright orange when active, dim when inactive
+    if(meleeBoxHelper) scene.remove(meleeBoxHelper);
+    meleeBoxHelper = new THREE.Box3Helper(player.meleeHitBox, 0xff6600);
+    meleeBoxHelper.visible = false;
+    scene.add(meleeBoxHelper);
 }
 function respawnPlayer() {
     if (!player) return;
@@ -561,7 +648,8 @@ function respawnPlayer() {
     if(player.health.uiElement) player.health.uiElement.style.width='100%';
     player.mesh.position.set((Math.random()-0.5)*100, 5, (Math.random()-0.5)*100);
     _camReady = false; _charMaterials = null;  // reset spring arm on respawn
-    player.isJumping=false; player.yVelocity=0; player.currentUltimate=null; player.isSwinging=false; player.swingProgress=0;
+    player.isJumping=false; player.yVelocity=0; player.currentUltimate=null;
+    player.meleeAttacking=false; player.meleeAttackAction=null; player.meleeHitBoxActive=false;
     const c=player.mesh.position.clone(); const sc=player.sizeConfig;
     c.y+=sc.hitboxCenterOffsetY;
     player.boundingBox.setFromCenterAndSize(c,new THREE.Vector3(sc.hitboxSize.x,sc.hitboxSize.y,sc.hitboxSize.z));
@@ -581,7 +669,7 @@ function startDevMode(modelId) {
     document.getElementById('ui-layer').style.display='block';
     document.getElementById('dev-hud').style.display='block';
     document.getElementById('pvp-hud').style.display='none';
-    initTuner(); initPhysicsTuner(); switchTunerTab('weapon');
+    initTuner(); initPhysicsTuner(); initMeleeTuner(); switchTunerTab('weapon');
     player=new Character(scene,modelId); enemy=new Enemy(scene,0,-120,modelId); wirePlayerDamage();
     loadMap('maps/battle_guys.glb',1,()=>{
         player.mesh.position.set(0,5,60); enemy.mesh.position.set(0,5,-60);
@@ -659,6 +747,13 @@ function loop() {
         );
 
         if(playerBoxHelper){playerBoxHelper.box.copy(player.boundingBox);playerBoxHelper.visible=showHitbox;}
+
+        // Melee damage box: bright orange = active (hot window), dark = inactive
+        if(meleeBoxHelper){
+            meleeBoxHelper.box.copy(player.meleeHitBox);
+            meleeBoxHelper.material.color.setHex(player.meleeHitBoxActive ? 0xff6600 : 0x442200);
+            meleeBoxHelper.visible = showHitbox && player.weaponManager.currentType === 'melee';
+        }
 
         if(gameMode==='dev'&&player.health.isDead&&!deathHandled){
             deathHandled=true;
