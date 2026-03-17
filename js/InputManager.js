@@ -3,7 +3,8 @@ import * as THREE from 'three';
 export class InputManager {
     constructor(camera, audioManager) {
         this.camera = camera; this.audioManager = audioManager;
-        this.keys = {}; this.isShooting = false; this.isLocked = false; this.isNoclip = false;
+        this.keys = {}; this.isShooting = false; this.isBlocking = false;
+        this.isLocked = false; this.isNoclip = false;
         this.mouseLookX = 0; this.mouseLookY = 0;
         this.freecamYaw = 0; this.freecamPitch = 0;
         
@@ -41,8 +42,26 @@ export class InputManager {
         });
 
         document.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        document.addEventListener('mousedown', (e) => { if (e.button === 0 && this.isLocked) this.isShooting = true; });
-        document.addEventListener('mouseup',   (e) => { if (e.button === 0) this.isShooting = false; });
+
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && this.isLocked) this.isShooting = true;
+            // Right mouse button = BLOCK (melee mode only)
+            if (e.button === 2 && this.isLocked) {
+                this.isBlocking = true;
+                // Prevent context menu
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.button === 0) this.isShooting  = false;
+            if (e.button === 2) this.isBlocking  = false;
+        });
+
+        // Suppress right-click context menu in-game
+        document.addEventListener('contextmenu', (e) => {
+            if (this.isLocked) e.preventDefault();
+        });
     }
 
     handleMouseMove(e) {
@@ -53,8 +72,7 @@ export class InputManager {
             this.freecamPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.freecamPitch));
         } else {
             this.mouseLookX -= e.movementX * 0.002;
-            this.mouseLookY += e.movementY * 0.002;   // raw: spring arm inverts on its end
-            // PI/2.2 gives ~81° vertical range; spring arm in main.js prevents geometry clip
+            this.mouseLookY += e.movementY * 0.002;
             this.mouseLookY = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.mouseLookY));
         }
     }

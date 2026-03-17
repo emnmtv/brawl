@@ -288,41 +288,129 @@ document.getElementById('btn-pvp-connect').addEventListener('click', () => {
 document.getElementById('pvp-name').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('btn-pvp-connect').click(); });
 
 // ═══════════════════════════════════════════════════
-//  DAMAGE UI
+//  DAMAGE UI — Floating numbers, block flash, kill feed
 // ═══════════════════════════════════════════════════
 class DamageUI {
     constructor() {
-        this.flashEl=document.getElementById('hit-flash'); this.indicatorsEl=document.getElementById('damage-indicators');
-        this.deathScreen=document.getElementById('death-screen'); this.countdownEl=document.getElementById('respawn-countdown');
-        this.progressEl=document.getElementById('respawn-progress'); this.killerEl=document.getElementById('respawn-killer');
-        this._countdownInterval=null; this._isDead=false;
+        this.flashEl      = document.getElementById('hit-flash');
+        this.blockFlashEl = document.getElementById('block-flash');
+        this.indicatorsEl = document.getElementById('damage-indicators');
+        this.numbersEl    = document.getElementById('damage-numbers');
+        this.deathScreen  = document.getElementById('death-screen');
+        this.countdownEl  = document.getElementById('respawn-countdown');
+        this.progressEl   = document.getElementById('respawn-progress');
+        this.killerEl     = document.getElementById('respawn-killer');
+        this.killFeedEl   = document.getElementById('kill-feed');
+        this._countdownInterval = null;
+        this._isDead = false;
+
+        // Block indicator
+        this.blockIndicator = document.getElementById('block-indicator');
+        document.addEventListener('player-blocked-bullet', () => this.showBlockDeflect());
     }
+
     showHit(amount, attackerWorldPos, playerPos, playerYaw) {
         if (this._isDead) return;
-        this.flashEl.classList.remove('flash-active'); void this.flashEl.offsetWidth; this.flashEl.classList.add('flash-active');
+        // Red vignette flash
+        this.flashEl.classList.remove('flash-active');
+        void this.flashEl.offsetWidth;
+        this.flashEl.classList.add('flash-active');
+        // Directional arrow
         if (attackerWorldPos && playerPos) {
-            const dx=attackerWorldPos.x-playerPos.x, dz=attackerWorldPos.z-playerPos.z;
-            if (Math.sqrt(dx*dx+dz*dz)>1) {
-                const cos=Math.cos(-playerYaw), sin=Math.sin(-playerYaw);
-                this._spawnIndicator(Math.atan2(dx*cos-dz*sin, -(dx*sin+dz*cos)));
+            const dx = attackerWorldPos.x - playerPos.x, dz = attackerWorldPos.z - playerPos.z;
+            if (Math.sqrt(dx*dx + dz*dz) > 1) {
+                const cos = Math.cos(-playerYaw), sin = Math.sin(-playerYaw);
+                this._spawnIndicator(Math.atan2(dx*cos - dz*sin, -(dx*sin + dz*cos)));
             }
         }
+        // Floating damage number — self damage (red), centre-ish
+        this._spawnDmgNumber(amount, innerWidth * 0.5 + (Math.random()-0.5)*80, innerHeight * 0.42, 'self');
     }
+
+    /** Called when a remote player is hit — shows floating number at screen-projected position */
+    showHitConfirm(amount, targetWorldPos) {
+        // Project world pos to screen
+        if (!_pvpCamera) { this._spawnDmgNumber(amount, innerWidth*0.5, innerHeight*0.4, 'hit'); return; }
+        const ndc = targetWorldPos.clone().project(_pvpCamera);
+        const sx  = (ndc.x * 0.5 + 0.5) * innerWidth;
+        const sy  = (-ndc.y * 0.5 + 0.5) * innerHeight;
+        if (ndc.z < 1) this._spawnDmgNumber(amount, sx + (Math.random()-0.5)*30, sy - 20, 'hit');
+    }
+
+    showBlockDeflect() {
+        // Cyan block flash
+        this.blockFlashEl.classList.remove('flash-active');
+        void this.blockFlashEl.offsetWidth;
+        this.blockFlashEl.classList.add('flash-active');
+        // "BLOCKED!" text
+        this._spawnDmgNumber('BLOCKED', innerWidth*0.5, innerHeight*0.38, 'block-deflect');
+    }
+
+    _spawnDmgNumber(text, x, y, cls) {
+        if (!this.numbersEl) return;
+        const el = document.createElement('div');
+        el.className = `dmg-number ${cls}`;
+        el.textContent = typeof text === 'number' ? `-${text}` : text;
+        el.style.left = x + 'px';
+        el.style.top  = y + 'px';
+        this.numbersEl.appendChild(el);
+        setTimeout(() => el.remove(), 1300);
+    }
+
     _spawnIndicator(angle) {
-        const R=Math.min(innerWidth,innerHeight)*0.38, el=document.createElement('div');
-        el.className='dmg-indicator'; el.style.left=`${innerWidth/2+R*Math.sin(angle)}px`; el.style.top=`${innerHeight/2-R*Math.cos(angle)}px`;
-        el.style.transform=`translate(-50%,-50%) rotate(${angle}rad)`; this.indicatorsEl.appendChild(el); setTimeout(()=>el.remove(),1200);
+        const R = Math.min(innerWidth, innerHeight) * 0.38;
+        const el = document.createElement('div');
+        el.className = 'dmg-indicator';
+        el.style.left = `${innerWidth/2 + R * Math.sin(angle)}px`;
+        el.style.top  = `${innerHeight/2 - R * Math.cos(angle)}px`;
+        el.style.transform = `translate(-50%,-50%) rotate(${angle}rad)`;
+        this.indicatorsEl.appendChild(el);
+        setTimeout(() => el.remove(), 1200);
     }
+
+    /** Add entry to kill feed. isLocalKill = local player got the kill. */
+    addKillFeed(killerName, victimName, isLocalKill, isLocalDeath) {
+        if (!this.killFeedEl) return;
+        const el = document.createElement('div');
+        el.className = `kill-entry${isLocalKill ? ' local-kill' : ''}${isLocalDeath ? ' local-victim' : ''}`;
+        el.innerHTML = `
+            <span class="kill-attacker${isLocalKill ? ' local' : ''}">${killerName}</span>
+            <span class="kill-weapon">⚡</span>
+            <span class="kill-victim${isLocalDeath ? ' local' : ''}">${victimName}</span>`;
+        this.killFeedEl.appendChild(el);
+        // Keep at most 5 entries
+        while (this.killFeedEl.children.length > 5) this.killFeedEl.removeChild(this.killFeedEl.firstChild);
+        setTimeout(() => el.remove(), 4000);
+    }
+
+    /** Show / hide the 🛡 block indicator (bottom centre) */
+    setBlocking(active) {
+        if (this.blockIndicator) this.blockIndicator.classList.toggle('active', active);
+    }
+
     showDeath(secs, label, onRespawn) {
-        this._isDead=true; if(this.killerEl) this.killerEl.textContent=label||'';
-        this.deathScreen.style.display='flex'; this.progressEl.style.transition='none'; this.progressEl.style.width='100%';
-        requestAnimationFrame(()=>requestAnimationFrame(()=>{ this.progressEl.style.transition=`width ${secs}s linear`; this.progressEl.style.width='0%'; }));
-        let rem=secs; this.countdownEl.textContent=rem; clearInterval(this._countdownInterval);
-        this._countdownInterval=setInterval(()=>{ rem--; this.countdownEl.textContent=rem; if(rem<=0){clearInterval(this._countdownInterval);this.hideDeath();onRespawn();} },1000);
+        this._isDead = true;
+        if (this.killerEl) this.killerEl.textContent = label || '';
+        this.deathScreen.style.display = 'flex';
+        this.progressEl.style.transition = 'none';
+        this.progressEl.style.width = '100%';
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            this.progressEl.style.transition = `width ${secs}s linear`;
+            this.progressEl.style.width = '0%';
+        }));
+        let rem = secs; this.countdownEl.textContent = rem; clearInterval(this._countdownInterval);
+        this._countdownInterval = setInterval(() => {
+            rem--; this.countdownEl.textContent = rem;
+            if (rem <= 0) { clearInterval(this._countdownInterval); this.hideDeath(); onRespawn(); }
+        }, 1000);
     }
-    hideDeath() { this._isDead=false; this.deathScreen.style.display='none'; clearInterval(this._countdownInterval); }
+
+    hideDeath() { this._isDead = false; this.deathScreen.style.display = 'none'; clearInterval(this._countdownInterval); }
 }
 const damageUI = new DamageUI();
+
+// Camera ref for world→screen projection of damage numbers
+let _pvpCamera = null;
 
 // ═══════════════════════════════════════════════════
 //  TUNER
@@ -624,6 +712,58 @@ function generatePhysicsCode() {
 }
 
 // ═══════════════════════════════════════════════════
+//  PVP HUD HELPERS
+// ═══════════════════════════════════════════════════
+function updatePvpHealthPanel() {
+    if (gameMode !== 'pvp' || !player) return;
+    const hp  = Math.max(0, Math.round(player.health.currentHealth));
+    const pct = hp / player.health.maxHealth * 100;
+    const valEl  = document.getElementById('pvp-health-value');
+    const fillEl = document.getElementById('pvp-health-bar-fill');
+    if (!valEl || !fillEl) return;
+    valEl.textContent = hp;
+    fillEl.style.width = pct + '%';
+    // Colour tiers
+    valEl.classList.toggle('low',  hp <= 60 && hp > 25);
+    valEl.classList.toggle('crit', hp <= 25);
+    fillEl.style.background = hp > 60
+        ? 'linear-gradient(to right,#00ffcc,#00cc88)'
+        : hp > 25
+        ? 'linear-gradient(to right,#ffaa00,#ff6600)'
+        : 'linear-gradient(to right,#ff2222,#cc0000)';
+    fillEl.style.boxShadow = hp > 60 ? '0 0 8px #00ffcc'
+        : hp > 25 ? '0 0 8px #ffaa00' : '0 0 8px #ff2222';
+}
+
+function updatePvpWeaponCards(type) {
+    const gunCard   = document.getElementById('pvp-wep-gun');
+    const meleeCard = document.getElementById('pvp-wep-melee');
+    if (!gunCard || !meleeCard) return;
+    gunCard.classList.toggle('active',   type === 'gun');
+    meleeCard.classList.toggle('active', type === 'melee');
+    // Also sync old-style dev slots if present
+    const g = document.getElementById('ui-wep-gun');
+    const m = document.getElementById('ui-wep-melee');
+    if (g && m) { g.classList.toggle('active', type==='gun'); m.classList.toggle('active', type==='melee'); }
+}
+
+function updatePvpPlayerCount() {
+    if (!network) return;
+    const n = network.remotePlayers.size + 1;
+    const el = document.getElementById('pvp-count');
+    if (el) el.textContent = `${n} ONLINE`;
+}
+
+let _netAlertTimer = null;
+function showNetAlert(msg) {
+    const el = document.getElementById('net-alert');
+    if (!el) return;
+    el.textContent = msg; el.style.opacity = '1';
+    clearTimeout(_netAlertTimer);
+    _netAlertTimer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+// ═══════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════
 function loadMap(url, scale=1, onDone=null) {
@@ -657,7 +797,11 @@ function respawnPlayer() {
 }
 function wirePlayerDamage() {
     if (!player) return;
-    player.health.onDamage=(amount,sourcePos)=>damageUI.showHit(amount,sourcePos||null,player.mesh.position,player.mesh.rotation.y);
+    player.health.onDamage=(amount,sourcePos)=>{
+        damageUI.showHit(amount,sourcePos||null,player.mesh.position,player.mesh.rotation.y);
+        player.playHitReaction?.();       // ← play hit_body anim on local player
+        updatePvpHealthPanel();           // ← sync new health panel numbers
+    };
 }
 
 // ═══════════════════════════════════════════════════
@@ -697,19 +841,61 @@ function startPvpMode(serverUrl,playerName,modelId) {
     network=new NetworkManager(scene,serverUrl,playerName,modelId);
     network.connect().then(myId=>{
         document.getElementById('connecting-overlay').style.display='none';
-        document.getElementById('dev-hud').style.display='none'; document.getElementById('pvp-hud').style.display='block';
-        document.getElementById('pvp-id').textContent=`ID: ${myId}`;
+        document.getElementById('dev-hud').style.display='none';
+        document.getElementById('pvp-hud').style.display='block';
+        document.getElementById('pvp-session-id').textContent=`ID: ${myId}`;
+
+        // Expose camera for world→screen damage number projection
+        _pvpCamera = camera;
+
         network.beamPool=beamPool; network.audioListener=audioManager.listener;
+
+        // ── Damage received ─────────────────────────────────────
         network.onDamage=amount=>{
             if(!player) return;
             player.health.takeDamage(amount);
+            updatePvpHealthPanel();
             if(player.health.isDead&&!deathHandled){
                 deathHandled=true; network.reportDead();
-                damageUI.showDeath(5,'NEUTRALIZED BY ENEMY',()=>{respawnPlayer();wirePlayerDamage();network.reportRespawn(player.modelId);});
+                damageUI.showDeath(5,'NEUTRALIZED BY ENEMY',()=>{
+                    respawnPlayer();wirePlayerDamage();network.reportRespawn(player.modelId);
+                    updatePvpHealthPanel();
+                });
             }
         };
-        player=new Character(scene,modelId); player.mesh.position.set((Math.random()-0.5)*100,5,(Math.random()-0.5)*100); wirePlayerDamage();
-        loadMap('maps/battle_guys.glb',1,()=>{player.setCollisionMeshes(mapLoader.collisionMeshes);initHitboxHelpers();if(!isRunning){isRunning=true;loop();}});
+
+        // ── Block feedback ───────────────────────────────────────
+        network.onBlocked=()=>{
+            damageUI.showBlockDeflect();
+        };
+
+        // ── Kill feed ────────────────────────────────────────────
+        network.onKillFeed=(killerName, victimName, isLocalKill)=>{
+            damageUI.addKillFeed(killerName, victimName, isLocalKill, false);
+        };
+        // Local player death → also add to kill feed
+        network.onDead=(victimId, killerId)=>{
+            // We handle our own death above via onDamage; this handles others
+            if(victimId !== network.localId) return; // already handled
+        };
+
+        // ── Join / Leave notifications ───────────────────────────
+        network.onPlayerJoin=(id, name)=>{
+            updatePvpPlayerCount(); showNetAlert(`${name} JOINED`);
+        };
+        network.onPlayerLeave=(id, name)=>{
+            updatePvpPlayerCount(); showNetAlert(`${name} LEFT`);
+        };
+
+        player=new Character(scene,modelId);
+        player.mesh.position.set((Math.random()-0.5)*100,5,(Math.random()-0.5)*100);
+        wirePlayerDamage();
+        updatePvpHealthPanel();
+        loadMap('maps/battle_guys.glb',1,()=>{
+            player.setCollisionMeshes(mapLoader.collisionMeshes);
+            initHitboxHelpers();
+            if(!isRunning){isRunning=true;loop();}
+        });
     }).catch(err=>{document.getElementById('connecting-msg').textContent=`❌ ${err.message}`;});
 }
 
@@ -772,11 +958,24 @@ function loop() {
 
     if(gameMode==='pvp'&&network){
         network.update(dt,player,inputManager); beamPool.update(dt,[],player);
+
+        // Sync weapon cards when weapon changes
+        if (player) updatePvpWeaponCards(player.weaponManager.currentType);
+
+        // Block indicator
+        if (player) damageUI.setBlocking(!!player.isBlocking);
+
         beamPool.pool.forEach(beam=>{
             if(!beam.userData.active||beam.userData.isEnemy||beam.userData.isRemote) return;
-            network.remotePlayers.forEach((rp,id)=>{if(!rp.isDead&&rp.boundingBox.containsPoint(beam.position)){network.reportHit(id,20);beam.visible=false;beam.userData.active=false;}});
+            network.remotePlayers.forEach((rp,id)=>{
+                if(!rp.isDead&&rp.boundingBox.containsPoint(beam.position)){
+                    const hit = network.reportHit(id, 20);
+                    beam.visible=false; beam.userData.active=false;
+                    if (hit) damageUI.showHitConfirm(20, rp.mesh.position.clone());
+                }
+            });
         });
-        document.getElementById('pvp-count').textContent=`Online: ${network.remotePlayers.size+1}`;
+        updatePvpPlayerCount();
     }
 
     renderer.render(scene,camera);

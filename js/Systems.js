@@ -8,7 +8,7 @@ export class HealthComponent {
         this.currentHealth = maxHealth;
         this.uiElement = document.getElementById(uiElementId);
         this.isDead = false;
-        this.onDamage = null; // callback: (amount, sourcePos?) => void
+        this.onDamage = null;
     }
 
     takeDamage(amount, sourcePos = null) {
@@ -41,7 +41,6 @@ export class BeamPool {
         }
     }
 
-    // Returns the beam so callers can tag userData (isRemote, sourcePos, etc.)
     fire(position, direction, isEnemy = false) {
         const beam = this.pool.find(b => !b.userData.active);
         if (!beam) return null;
@@ -68,17 +67,23 @@ export class BeamPool {
             beam.position.addScaledVector(beam.userData.direction, moveDist);
             beam.userData.distance += moveDist;
 
-            // Remote beams are visual-only — damage is server-authoritative
             if (beam.userData.isRemote) {
-                if (beam.userData.distance > 300) {
-                    beam.visible = false; beam.userData.active = false; beam.userData.isRemote = false;
-                }
+                if (beam.userData.distance > 300) { beam.visible = false; beam.userData.active = false; beam.userData.isRemote = false; }
                 return;
             }
 
             if (beam.userData.isEnemy) {
                 if (player.health && !player.health.isDead && player.boundingBox) {
                     if (player.boundingBox.containsPoint(beam.position)) {
+                        // ── BLOCK DEFLECTION ───────────────────────────────
+                        // If player is blocking with melee equipped, deflect bullet
+                        if (player.isBlocking && player.weaponManager?.currentType === 'melee') {
+                            beam.visible = false; beam.userData.active = false;
+                            // Notify UI of successful block
+                            const blockEvt = new CustomEvent('player-blocked-bullet');
+                            document.dispatchEvent(blockEvt);
+                            return;
+                        }
                         player.health.takeDamage(10, beam.userData.sourcePos || null);
                         beam.visible = false; beam.userData.active = false;
                     }
@@ -94,9 +99,7 @@ export class BeamPool {
                 });
             }
 
-            if (beam.userData.distance > 300) {
-                beam.visible = false; beam.userData.active = false;
-            }
+            if (beam.userData.distance > 300) { beam.visible = false; beam.userData.active = false; }
         });
     }
 
@@ -104,12 +107,6 @@ export class BeamPool {
 }
 
 export class Enemy {
-    /**
-     * @param {THREE.Scene} scene
-     * @param {number}      x
-     * @param {number}      z
-     * @param {string}      modelId  Key into MODEL_REGISTRY e.g. 't800'
-     */
     constructor(scene, x, z, modelId = 't800') {
         this.modelId = modelId;
         this.mesh = new THREE.Group();
@@ -125,14 +122,12 @@ export class Enemy {
         this.handBone = null; this.mixer = null;
         this.actions = {}; this.activeAction = null;
 
-        // Load via registry
         const profile = getModel(modelId);
         new GLTFLoader().load(profile.path, (gltf) => {
             const model = gltf.scene;
             model.scale.setScalar(profile.scale);
             model.rotation.y = profile.rootRotation ?? Math.PI;
 
-            // Resolve hand bone via registry
             const handBoneName = getBoneName(modelId, 'hand_R');
             model.traverse(child => {
                 if (child.isMesh) child.frustumCulled = false;
@@ -142,7 +137,6 @@ export class Enemy {
             this.mesh.add(model);
             this.mixer = new THREE.AnimationMixer(model);
             gltf.animations.forEach(clip => {
-                // Register by actual name (lowercased) — enough for the simple enemy AI
                 this.actions[clip.name.toLowerCase()] = this.mixer.clipAction(clip);
             });
             this.playAnim('idle');
@@ -178,8 +172,7 @@ export class Enemy {
         }
 
         if (this.boundingBox) {
-            const center = this.mesh.position.clone();
-            center.y += 1;
+            const center = this.mesh.position.clone(); center.y += 1;
             this.boundingBox.setFromCenterAndSize(center, new THREE.Vector3(6, 12, 6));
         }
         if (!this.mixer) return;

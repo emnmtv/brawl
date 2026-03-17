@@ -163,6 +163,7 @@ physics: {
             melee_attack_1: ['melee_1', ],
             melee_attack_2: ['melee_2', ],
             melee_attack_3: ['melee_3', ],
+            melee_block: ['melee_block_4'],
 
         },
        // Model: walterwhite
