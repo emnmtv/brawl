@@ -20,9 +20,9 @@ export const MODEL_REGISTRY = {
             hand_R:      'bip_hand_R',
             upper_arm_R: 'bip_upperArm_R',
             lower_arm_R: 'bip_lowerArm_R',
-            spine:       'bip_spine_2',   // mid-chest — best for aim lean
-            spine_upper: 'bip_spine_3',   // upper chest — distributes pitch naturally
-            head:        'bip_head',
+            spine:       '',   // mid-chest — best for aim lean
+            spine_upper: '',   // upper chest — distributes pitch naturally
+            head:        '',
         },
         animations: {
             idle:                   'idle',

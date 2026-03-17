@@ -67,19 +67,21 @@ window.addEventListener('keydown', (e) => {
 renderer.domElement.addEventListener('click', () => {
     const menuVisible = document.getElementById('main-menu').style.display !== 'none' ||
                         document.getElementById('char-card-grid').offsetParent !== null;
-    if (!menuVisible && document.pointerLockElement !== document.body) {
+    if (!menuVisible) {
         try {
             const lockPromise = document.body.requestPointerLock();
-            // If browser returns a promise (modern browsers)
             if (lockPromise && typeof lockPromise.then === 'function') {
                 lockPromise.catch(err => {
-                    console.warn('Pointer lock denied:', err.message);
-                    showPointerLockError(err);
+                    // Only show error if not already locked
+                    if (document.pointerLockElement !== document.body) {
+                        showPointerLockError(err);
+                    }
                 });
             }
         } catch (err) {
-            console.warn('Pointer lock error:', err.message);
-            showPointerLockError(err);
+            if (document.pointerLockElement !== document.body) {
+                showPointerLockError(err);
+            }
         }
     }
 });
@@ -102,7 +104,21 @@ function showPointerLockError(err) {
         el.style.fontSize = '1.1em';
         document.body.appendChild(el);
     }
-    el.textContent = 'Pointer lock failed: ' + (err && err.message ? err.message : err);
+    let msg = '';
+    if (err && typeof err === 'object') {
+        if (err.message) {
+            msg = err.message;
+        } else if (err.type === 'pointerlockerror') {
+            msg = 'Pointer lock request was denied by the browser or interrupted by the user.';
+        } else if (err.type) {
+            msg = 'Pointer lock failed: ' + err.type;
+        } else {
+            msg = 'Pointer lock failed.';
+        }
+    } else {
+        msg = err ? String(err) : 'Pointer lock failed.';
+    }
+    el.textContent = msg;
     el.style.display = 'block';
     setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
@@ -961,6 +977,21 @@ function startDevMode(modelId) {
     document.getElementById('dev-hud').style.display='block';
     document.getElementById('pvp-hud').style.display='none';
     initTuner(); initPhysicsTuner(); initMeleeTuner(); switchTunerTab('weapon');
+    // Request pointer lock on first join
+    if (document.pointerLockElement !== document.body) {
+        try {
+            const lockPromise = document.body.requestPointerLock();
+            if (lockPromise && typeof lockPromise.then === 'function') {
+                lockPromise.catch(err => {
+                    console.warn('Pointer lock denied:', err.message);
+                    if (typeof showPointerLockError === 'function') showPointerLockError(err);
+                });
+            }
+        } catch (err) {
+            console.warn('Pointer lock error:', err.message);
+            if (typeof showPointerLockError === 'function') showPointerLockError(err);
+        }
+    }
     player=new Character(scene,modelId); enemy=new Enemy(scene,0,-120,modelId); wirePlayerDamage();
     loadMap('maps/battle_guys.glb',1,()=>{
         player.mesh.position.set(0,5,60); enemy.mesh.position.set(0,5,-60);
@@ -987,6 +1018,21 @@ function startPvpMode(serverUrl,playerName,modelId) {
     document.getElementById('connecting-overlay').style.display='flex';
     network=new NetworkManager(scene,serverUrl,playerName,modelId);
     network.connect().then(myId=>{
+        // Request pointer lock on first join
+        if (document.pointerLockElement !== document.body) {
+            try {
+                const lockPromise = document.body.requestPointerLock();
+                if (lockPromise && typeof lockPromise.then === 'function') {
+                    lockPromise.catch(err => {
+                        console.warn('Pointer lock denied:', err.message);
+                        if (typeof showPointerLockError === 'function') showPointerLockError(err);
+                    });
+                }
+            } catch (err) {
+                console.warn('Pointer lock error:', err.message);
+                if (typeof showPointerLockError === 'function') showPointerLockError(err);
+            }
+        }
         document.getElementById('connecting-overlay').style.display='none';
         document.getElementById('dev-hud').style.display='none';
         document.getElementById('pvp-hud').style.display='block';
