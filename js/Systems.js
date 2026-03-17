@@ -151,6 +151,7 @@ export class BeamPool {
     constructor(scene, size = 30) {
         this.pool = [];
         this.deflectFX = new DeflectFX(scene);
+        this._ray = new THREE.Raycaster();
 
         const geometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 8);
         geometry.rotateX(Math.PI / 2);
@@ -163,7 +164,9 @@ export class BeamPool {
                 active: false, speed: 100, distance: 0,
                 isEnemy: false, isRemote: false, isDeflected: false,
                 sourcePos: null,
-                direction: new THREE.Vector3()
+                direction: new THREE.Vector3(),
+                prevPos: new THREE.Vector3(),
+                segStart: new THREE.Vector3(),
             };
             scene.add(beam);
             this.pool.push(beam);
@@ -175,6 +178,7 @@ export class BeamPool {
         if (!beam) return null;
 
         beam.position.copy(position);
+        beam.userData.prevPos.copy(position);
         beam.lookAt(position.clone().add(direction));
         beam.userData.direction.copy(direction).normalize();
         beam.visible = true;
@@ -231,30 +235,66 @@ export class BeamPool {
         document.dispatchEvent(new CustomEvent('player-blocked-bullet'));
     }
 
-    update(dt, enemies, player) {
+    update(dt, enemies, player, collisionMeshes = []) {
         this.deflectFX.update(dt);
 
         this.pool.forEach(beam => {
             if (!beam.userData.active) return;
 
             const moveDist = beam.userData.speed * dt;
-            beam.position.addScaledVector(beam.userData.direction, moveDist);
+            const prev = beam.userData.prevPos;
+            beam.userData.segStart.copy(prev); // expose per-frame segment start for external hit logic (e.g., PVP)
+            const next = beam.position.clone().addScaledVector(beam.userData.direction, moveDist);
+
+            // ── World collision (walls/buildings/map) — continuous raycast ──
+            // Do this first so beams don't tunnel through thin geometry.
+            if (collisionMeshes && collisionMeshes.length) {
+                const segDir = next.clone().sub(prev);
+                const segLen = segDir.length();
+                if (segLen > 1e-6) {
+                    segDir.divideScalar(segLen);
+                    this._ray.set(prev, segDir);
+                    this._ray.near = 0;
+                    this._ray.far = segLen;
+                    const hits = this._ray.intersectObjects(collisionMeshes, false);
+                    if (hits.length > 0) {
+                        // Stop at first impact
+                        beam.position.copy(hits[0].point);
+                        beam.userData.prevPos.copy(beam.position);
+                        beam.userData.distance += hits[0].distance;
+                        beam.visible = false;
+                        beam.userData.active = false;
+                        return;
+                    }
+                }
+            }
+
+            // Apply movement now that the segment is clear
+            beam.position.copy(next);
             beam.userData.distance += moveDist;
 
             // Deflected bolts — purely visual, die at range
             if (beam.userData.isDeflected) {
                 if (beam.userData.distance > 200) { beam.visible = false; beam.userData.active = false; }
+                beam.userData.prevPos.copy(beam.position);
                 return;
             }
 
             if (beam.userData.isRemote) {
                 if (beam.userData.distance > 300) { beam.visible = false; beam.userData.active = false; beam.userData.isRemote = false; }
+                beam.userData.prevPos.copy(beam.position);
                 return;
             }
 
             if (beam.userData.isEnemy) {
                 if (player.health && !player.health.isDead && player.boundingBox) {
-                    if (player.boundingBox.containsPoint(beam.position)) {
+                    // Continuous hit check vs player bounding box (prevents tunneling)
+                    const segDir = beam.position.clone().sub(prev);
+                    const segLen = segDir.length();
+                    const ray = segLen > 1e-6 ? new THREE.Ray(prev, segDir.clone().divideScalar(segLen)) : null;
+                    const hitPoint = ray ? player.boundingBox.intersectRay(ray, new THREE.Vector3()) : null;
+                    const hitInSeg = !!hitPoint && hitPoint.distanceTo(prev) <= segLen + 1e-4;
+                    if (hitInSeg) {
                         // ── LIGHTSABER DEFLECT ─────────────────────────────
                         if (player.isBlocking && player.weaponManager?.currentType === 'melee') {
                             this._deflect(beam, player);
@@ -267,7 +307,13 @@ export class BeamPool {
             } else {
                 enemies.forEach(enemy => {
                     if (!enemy.health.isDead && enemy.boundingBox) {
-                        if (enemy.boundingBox.containsPoint(beam.position)) {
+                        // Continuous hit check vs enemy bounding box (prevents tunneling)
+                        const segDir = beam.position.clone().sub(prev);
+                        const segLen = segDir.length();
+                        const ray = segLen > 1e-6 ? new THREE.Ray(prev, segDir.clone().divideScalar(segLen)) : null;
+                        const hitPoint = ray ? enemy.boundingBox.intersectRay(ray, new THREE.Vector3()) : null;
+                        const hitInSeg = !!hitPoint && hitPoint.distanceTo(prev) <= segLen + 1e-4;
+                        if (hitInSeg) {
                             enemy.health.takeDamage(20);
                             beam.visible = false; beam.userData.active = false;
                         }
@@ -276,6 +322,7 @@ export class BeamPool {
             }
 
             if (beam.userData.distance > 300) { beam.visible = false; beam.userData.active = false; }
+            beam.userData.prevPos.copy(beam.position);
         });
     }
 

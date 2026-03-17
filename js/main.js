@@ -951,8 +951,6 @@ function respawnPlayer() {
     _camReady = false; _charMaterials = null;  // reset spring arm on respawn
     player.isJumping=false; player.yVelocity=0; player.currentUltimate=null;
     player.meleeAttacking=false; player.meleeAttackAction=null; player.meleeHitBoxActive=false;
-    player._swapping=false; player._swapAction=null; player._pendingWeapon=null;
-    clearTimeout(player._swapTimeout);
     const c=player.mesh.position.clone(); const sc=player.sizeConfig;
     c.y+=sc.hitboxCenterOffsetY;
     player.boundingBox.setFromCenterAndSize(c,new THREE.Vector3(sc.hitboxSize.x,sc.hitboxSize.y,sc.hitboxSize.z));
@@ -1157,12 +1155,14 @@ function loop() {
 
     if(gameMode==='dev'&&enemy){
         if(mapLoader&&mapLoader.isLoaded){const p=enemy.mesh.position;const ray=new THREE.Raycaster(new THREE.Vector3(p.x,p.y+2,p.z),new THREE.Vector3(0,-1,0));ray.far=10;const hits=ray.intersectObjects(mapLoader.collisionMeshes,false);if(hits.length>0&&hits[0].point.y<=p.y+2)enemy.mesh.position.y=hits[0].point.y;}
-        enemy.update(dt,clock,player,beamPool); beamPool.update(dt,[enemy],player);
+        enemy.update(dt,clock,player,beamPool);
+        beamPool.update(dt,[enemy],player, mapLoader && mapLoader.isLoaded ? mapLoader.collisionMeshes : []);
         if(enemyBoxHelper){enemyBoxHelper.box.copy(enemy.boundingBox);enemyBoxHelper.visible=showHitbox;}
     }
 
     if(gameMode==='pvp'&&network){
-        network.update(dt,player,inputManager); beamPool.update(dt,[],player);
+        network.update(dt,player,inputManager);
+        beamPool.update(dt,[],player, mapLoader && mapLoader.isLoaded ? mapLoader.collisionMeshes : []);
 
         // Sync weapon cards when weapon changes
         if (player) updatePvpWeaponCards(player.weaponManager.currentType);
@@ -1191,15 +1191,21 @@ function loop() {
             if(beam.userData.isEnemy) return;
 
             // ── Local outgoing beams — check remote player hits ───────
+            const segStart = beam.userData.segStart || beam.userData.prevPos || beam.position;
+            const segEnd   = beam.position;
+            const segVec   = segEnd.clone().sub(segStart);
+            const segLen   = segVec.length();
+            const ray      = segLen > 1e-6 ? new THREE.Ray(segStart.clone(), segVec.clone().divideScalar(segLen)) : null;
+
             network.remotePlayers.forEach((rp,id)=>{
-                if(!rp.isDead && rp.boundingBox.containsPoint(beam.position)){
+                if(rp.isDead || !rp.boundingBox) return;
+                if(!ray) return;
+                const hitPoint = rp.boundingBox.intersectRay(ray, new THREE.Vector3());
+                const hitInSeg = !!hitPoint && hitPoint.distanceTo(segStart) <= segLen + 1e-4;
+                if(hitInSeg){
                     const hit = network.reportHit(id, 20);
                     beam.visible=false; beam.userData.active=false;
-                    if(hit) {
-                        damageUI.showHitConfirm(20, rp.mesh.position.clone());
-                        // Track kill for scoreboard: if rp health reaches 0 after this hit
-                        // the server will emit dead+killerId which fires onKillFeed
-                    }
+                    if(hit) damageUI.showHitConfirm(20, rp.mesh.position.clone());
                 }
             });
         });

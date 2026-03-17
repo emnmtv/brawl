@@ -51,10 +51,7 @@ export class Character {
         this._blockIdx         = 0;     // cycles through available block clips
         this._currentBlockAct  = null;  // the action currently playing as block
 
-        // Weapon swap animation state
-        this._swapping         = false;   // true while equip/unequip LoopOnce plays
-        this._swapAction       = null;
-        this._pendingWeapon    = null;    // weapon to equip after unequip finishes
+        // Weapon swap animation removed: weapon changes are instant.
 
         const profile = getModel(modelId);
         new GLTFLoader().load(profile.path, (gltf) => {
@@ -102,22 +99,6 @@ export class Character {
                     this.meleeAttacking    = false;
                     this.meleeAttackAction = null;
                     this.meleeHitBoxActive = false;
-                }
-                // Weapon swap animation finished
-                if (e.action === this._swapAction) {
-                    this._swapping    = false;
-                    this._swapAction  = null;
-                    // Unequip finished — now do the actual mesh swap
-                    if (this._pendingWeapon) {
-                        const next = this._pendingWeapon;
-                        this._pendingWeapon = null;
-                        if (next === '__gun__') {
-                            this.weaponManager.equip('gun');
-                        } else {
-                            this.weaponManager.equip(next);
-                            this._playSwapAnim('equip_melee');
-                        }
-                    }
                 }
             });
 
@@ -181,71 +162,7 @@ export class Character {
         setTimeout(() => { this._hitReacting = false; }, dur + 50);
     }
 
-    /** Play equip_melee or unequip_melee as LoopOnce, locking all other animation logic. */
-    _playSwapAnim(key) {
-        if (!this.mixer) return false;
-        const act = this.actions[key];
-        if (!act) return false;
-        act.reset();
-        act.setLoop(THREE.LoopOnce, 1);
-        act.clampWhenFinished = true;
-        // Play equip/unequip at 2.5x speed for snappier feel
-        act.setEffectiveTimeScale(2.5);
-        act.setEffectiveWeight(1).play();
-        if (this.activeAction && this.activeAction !== act)
-            this.activeAction.crossFadeTo(act, 0.1, true);
-        this.activeAction = act;
-        this._swapping    = true;
-        this._swapAction  = act;
-
-        // Safety: if the 'finished' event never fires (zero-duration clip or edge case)
-        // release the swap lock after clip duration + 200ms grace period.
-        const dur = ((act.getClip()?.duration ?? 0.5) * 1000 + 200) / 2.5;
-        clearTimeout(this._swapTimeout);
-        this._swapTimeout = setTimeout(() => {
-            if (this._swapAction === act) {
-                // Force-complete: run the finished logic manually
-                this._swapping    = false;
-                this._swapAction  = null;
-                if (this._pendingWeapon) {
-                    const next = this._pendingWeapon;
-                    this._pendingWeapon = null;
-                    if (next === '__gun__') { this.weaponManager.equip('gun'); }
-                    else { this.weaponManager.equip(next); this._playSwapAnim('equip_melee'); }
-                }
-            }
-        }, dur);
-
-        return true;
-    }
-
-    /**
-     * Animated weapon swap:
-     *   gun → melee : play unequip_melee (there isn't one for gun so skip), then equip_melee
-     *   melee → gun : play unequip_melee then switch mesh, no equip anim for gun
-     * If the animations don't exist the swap happens instantly (same as before).
-     */
-    swapWeapon(targetType) {
-        if (this._swapping) return;                                    // already mid-swap
-        if (targetType === this.weaponManager.currentType) return;     // no-op
-
-        const fromMelee = this.weaponManager.currentType === 'melee';
-        const toMelee   = targetType === 'melee';
-
-        if (fromMelee) {
-            // Unequip melee → finished handler will swap mesh to gun
-            const played = this._playSwapAnim('unequip_melee');
-            if (played) {
-                this._pendingWeapon = '__gun__';
-            } else {
-                this.weaponManager.equip('gun');
-            }
-        } else if (toMelee) {
-            // Equip melee mesh immediately, play equip anim on top
-            this.weaponManager.equip('melee');
-            this._playSwapAnim('equip_melee');
-        }
-    }
+    // Weapon swap animations removed.
 
     update(dt, clock, inputManager, audioManager, dependencies) {
         if (this.health.isDead) {
@@ -277,8 +194,9 @@ export class Character {
         const center = this.mesh.position.clone(); center.y += sc.hitboxCenterOffsetY;
         this.boundingBox.setFromCenterAndSize(center, new THREE.Vector3(sc.hitboxSize.x, sc.hitboxSize.y, sc.hitboxSize.z));
 
-        if (inputManager.activeWeapon !== this.weaponManager.currentType && !this._swapping)
-            this.swapWeapon(inputManager.activeWeapon);
+        if (inputManager.activeWeapon !== this.weaponManager.currentType) {
+            this.weaponManager.equip(inputManager.activeWeapon);
+        }
 
         if (inputManager.ultimateQueue && this.weaponManager.currentType === 'melee') {
             this.currentUltimate = inputManager.ultimateQueue; this.ultimateTimer = 0; inputManager.ultimateQueue = null;
@@ -355,7 +273,7 @@ export class Character {
                 if (dotRgt < -0.35) animLeft  = true;
             }
 
-            if (!this._swapping) {
+            {
             // ── Blocking animation — cycle on each new block press ────
             const blockRising = this.isBlocking && !this._wasBlocking;
             this._wasBlocking = this.isBlocking;
@@ -396,7 +314,7 @@ export class Character {
                 }, this.actions);
                 if (targetAnim && !this.meleeAttacking) this.playAction(targetAnim);
             }
-            } // end if (!this._swapping)
+            }
 
             const upperKey = this.weaponManager.currentType === 'gun' ? this.slots.shoot + '_upperbody' : null;
             if (upperKey && this.actions[upperKey] && !this.currentUltimate) {
@@ -456,7 +374,7 @@ export class Character {
         }
 
         // ── Melee attack: trigger one-shot GLB animation on left-click ─
-        if (!this._swapping && this.weaponManager.currentType === 'melee' &&
+        if (this.weaponManager.currentType === 'melee' &&
             !this.currentUltimate && !inputManager.isNoclip && !this.isBlocking) {
             if (inputManager.isShooting && !this.meleeAttacking) {
                 const candidates = [
@@ -490,11 +408,11 @@ export class Character {
         }
 
         // ── Gun fire ──────────────────────────────────────────────────────
-        if (!this._swapping && inputManager.isShooting &&
+        if (inputManager.isShooting &&
             !this.currentUltimate && !inputManager.isNoclip) {
             if (this.weaponManager.currentType === 'gun') {
                 this.weaponManager.attemptFire(clock, {
-                    player: this, beamPool, enemies, network, isRemote: false,
+                    player: this, beamPool, enemies, network, inputManager, isRemote: false,
                 });
             }
         }

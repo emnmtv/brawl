@@ -57,7 +57,7 @@ class WeaponStrategy {
 class GunWeapon extends WeaponStrategy {
     constructor(config) { super('gun', config); }
 
-    fire({ player, beamPool, isRemote }) {
+    fire({ player, beamPool, inputManager, isRemote }) {
         let spawnPos;
 
         if (this.mesh && !isRemote) {
@@ -77,9 +77,15 @@ class GunWeapon extends WeaponStrategy {
                 new THREE.Euler(player.targetPitch || 0, player.mesh.rotation.y, 0, 'YXZ')
             );
         } else {
-            aimDir = new THREE.Vector3();
-            player.cameraPivot.getWorldDirection(aimDir);
-            aimDir.negate();
+            // True aim direction is computed by the spring camera each frame (crosshair direction).
+            // Fall back to the camera pivot direction if unavailable.
+            if (inputManager?.aimDir) {
+                aimDir = inputManager.aimDir.clone().normalize();
+            } else {
+                aimDir = new THREE.Vector3();
+                player.cameraPivot.getWorldDirection(aimDir);
+                aimDir.normalize();
+            }
         }
 
         const beam = beamPool.fire(spawnPos, aimDir, false);
