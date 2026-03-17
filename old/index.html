@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>brawl</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.min.js"></script>
+</head>
+<body>
+
+<!-- ═══ MAIN MENU ═══════════════════════════════════════ -->
+<div id="main-menu">
+    <div class="menu-scanlines"></div>
+    <div class="menu-logo">
+        <div class="logo-ring"></div>
+        <h1 class="logo-title">BRAWL</h1>
+        <p class="logo-sub">3RD PERSON ROYALE RUMBLE</p>
+        <div class="logo-divider"></div>
+    </div>
+
+    <div id="menu-lobby" class="menu-panel">
+        <button id="btn-dev-mode" class="menu-btn">
+            <span class="btn-icon">⚙</span> DEV MODE
+            <small>AI enemy · weapon tuner · noclip</small>
+        </button>
+        <button id="btn-pvp-mode" class="menu-btn pvp">
+            <span class="btn-icon">⚡</span> PVP MODE
+            <small>Multiplayer · WebSocket</small>
+        </button>
+        <p class="menu-hint">Map: battle_guys.glb</p>
+    </div>
+
+    <div id="menu-char-select" class="menu-panel char-select-panel" style="display:none">
+        <h2 class="panel-title">SELECT OPERATIVE</h2>
+        <p class="menu-hint" style="margin-bottom:12px;">Choose your unit for this deployment</p>
+        <div id="char-card-grid"></div>
+        <div id="char-detail">
+            <div id="char-detail-name">—</div>
+            <div id="char-detail-sub">—</div>
+            <p id="char-detail-desc"></p>
+            <div id="char-stats">
+                <div class="stat-row"><span class="stat-label">SPD</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-speed"></div></div><span class="stat-val" id="stat-speed-val">—</span></div>
+                <div class="stat-row"><span class="stat-label">DMG</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-damage"></div></div><span class="stat-val" id="stat-damage-val">—</span></div>
+                <div class="stat-row"><span class="stat-label">ARM</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-armor"></div></div><span class="stat-val" id="stat-armor-val">—</span></div>
+            </div>
+        </div>
+        <div class="pvp-btn-row" style="margin-top:16px;">
+            <button id="btn-char-back" class="menu-btn small">← BACK</button>
+            <button id="btn-char-confirm" class="menu-btn small" disabled>CONFIRM ▶</button>
+        </div>
+    </div>
+
+    <div id="menu-pvp" class="menu-panel" style="display:none">
+        <h2 class="panel-title">PVP LOBBY</h2>
+        <label class="field-label">Server URL</label>
+        <input id="pvp-server-url" class="menu-input" type="text" value="https://decade-away-postposted-charitable.trycloudflare.com">
+        <label class="field-label">Callsign</label>
+        <input id="pvp-name" class="menu-input" type="text" value="SPARTAN" maxlength="16">
+        <div class="pvp-btn-row">
+            <button id="btn-pvp-back" class="menu-btn small">← BACK</button>
+            <button id="btn-pvp-connect" class="menu-btn small pvp">CONNECT &amp; PLAY</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ CONNECTING ═══════════════════════════════════════ -->
+<div id="connecting-overlay" style="display:none">
+    <div class="spinner"></div>
+    <p id="connecting-msg">Connecting…</p>
+</div>
+
+<!-- ═══ IN-GAME UI LAYER ══════════════════════════════════ -->
+<div id="ui-layer" style="display:none">
+
+    <!-- ─── DEV HUD ─────────────────────────────────────── -->
+    <div id="dev-hud" style="display:none">
+        <div id="hud">
+            <h2>COMBAT OS · DEV</h2>
+            <p>W/A/S/D: Move | SHIFT: Sprint | SPACE: Jump<br>
+               MOUSE: Aim | LMB: Attack | RMB: Block (melee)<br>
+               1/2: Swap Weapon | Q/E/R: Ultimates | V: Noclip | TAB: Scores</p>
+            <div id="weapon-display-dev" class="weapon-display">
+                <div id="ui-wep-gun"   class="wep-slot active"><span class="wep-key">[1]</span> BLASTER RIFLE</div>
+                <div id="ui-wep-melee" class="wep-slot"><span class="wep-key">[2]</span> LIGHTSABER</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;pointer-events:all;">
+                <button id="toggle-ai-btn"     style="padding:6px 12px;background:#ffaa00;color:black;border:none;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">AI: ON</button>
+                <button id="toggle-hitbox-btn" style="padding:6px 12px;background:#444;color:white;border:1px solid #666;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">View Hitbox</button>
+            </div>
+            <div id="target-info" style="position:absolute;top:20px;right:20px;color:#ff3333;text-align:right;text-shadow:0 0 5px #ff3333;">
+                <h2>TARGET INTEGRITY</h2>
+                <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill" style="background:#ff3333;"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── PVP HUD ─────────────────────────────────────── -->
+    <div id="pvp-hud" style="display:none">
+
+        <!-- Top-left: session info -->
+        <div id="pvp-status-bar">
+            <div id="pvp-session-id">ID: —</div>
+            <div id="pvp-online-badge">
+                <div class="online-dot"></div>
+                <span id="pvp-count">1 ONLINE</span>
+            </div>
+        </div>
+
+        <!-- Top-centre: mini controls legend -->
+        <div id="pvp-controls-legend">
+            <span class="ctrl-hint"><span>WASD</span> MOVE</span>
+            <span class="ctrl-hint"><span>SHIFT</span> SPRINT</span>
+            <span class="ctrl-hint"><span>SPC</span> JUMP</span>
+            <span class="ctrl-hint"><span>LMB</span> ATTACK</span>
+            <span class="ctrl-hint"><span>RMB</span> BLOCK</span>
+            <span class="ctrl-hint"><span>1/2</span> SWAP</span>
+            <span class="ctrl-hint"><span>TAB</span> SCORES</span>
+        </div>
+
+        <!-- Bottom-left: weapon selector cards -->
+        <div id="pvp-weapon-bar">
+            <div id="pvp-wep-gun" class="pvp-wep-card active">
+                <span class="wep-key-badge">[1]</span>
+                BLASTER
+            </div>
+            <div id="pvp-wep-melee" class="pvp-wep-card">
+                <span class="wep-key-badge">[2]</span>
+                SABER
+            </div>
+        </div>
+
+        <!-- Bottom-right: health panel -->
+        <div id="pvp-health-panel">
+            <div class="health-label">SYSTEM INTEGRITY</div>
+            <div id="pvp-health-value">100</div>
+            <div class="health-bar-row">
+                <div id="pvp-health-bar-track">
+                    <div id="pvp-health-bar-fill"></div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- end #pvp-hud -->
+
+    <!-- ─── KILL FEED ──────────────────────────────────── -->
+    <!-- NOTE: shown in both dev+pvp modes, positioned top-right.
+         In dev mode the enemy-health bar is in the hud itself. -->
+    <div id="kill-feed"></div>
+
+    <!-- ─── SHARED HUD ELEMENTS ───────────────────────── -->
+    <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
+
+    <!-- Dev / fallback health bar (shown in dev mode only) -->
+    <div id="player-info" style="position:absolute;bottom:20px;right:20px;color:#00ffcc;text-align:right;text-shadow:0 0 5px #00ffcc;display:none;">
+        <h2>SYSTEM INTEGRITY</h2>
+        <div class="bar-bg"><div id="player-health-bar" class="bar-fill" style="background:#00ffcc;"></div></div>
+    </div>
+
+    <div id="crosshair">+</div>
+    <div id="lock-hint">Click to lock mouse &amp; start</div>
+    <div id="net-alert"></div>
+    <div id="loading-status"></div>
+
+    <!-- ─── DAMAGE / EFFECTS ───────────────────────────── -->
+    <div id="hit-flash"></div>
+    <div id="block-flash"></div>
+    <div id="damage-indicators"></div>
+    <div id="damage-numbers"></div>
+
+    <!-- ─── BLOCK SHIELD INDICATOR ────────────────────── -->
+    <div id="block-indicator">
+        <div class="block-shield-icon">🛡</div>
+        <div class="block-text">BLOCKING</div>
+        <div class="block-hint">RMB · MELEE MODE</div>
+    </div>
+
+    <!-- ─── DEATH / RESPAWN SCREEN ────────────────────── -->
+    <div id="death-screen" style="display:none">
+        <div class="death-scanlines"></div>
+        <div class="death-content">
+            <div class="death-hex-ring"></div>
+            <h1 class="death-title" data-text="TERMINATED">TERMINATED</h1>
+            <p class="death-sub">SYSTEM INTEGRITY: <span class="death-zero">0%</span></p>
+            <p class="death-cause" id="respawn-killer">TERMINATED BY AI</p>
+            <div class="respawn-row">
+                <span class="respawn-label">RESPAWNING IN</span>
+                <span class="respawn-num" id="respawn-countdown">3</span>
+            </div>
+            <div class="respawn-track">
+                <div class="respawn-track-fill" id="respawn-progress"></div>
+                <div class="respawn-track-glow"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
+         DEV TUNER (unchanged — kept full)
+    ═══════════════════════════════════════════════════ -->
+    <div id="dev-tuner" style="display:none;position:fixed;top:0;right:0;width:310px;max-height:100vh;overflow-y:auto;background:#111;border-left:1px solid #333;padding:10px;font-size:12px;color:#ccc;z-index:999;pointer-events:all;">
+        <div style="color:#00ffcc;font-weight:bold;letter-spacing:3px;margin-bottom:8px;">
+            DEV TUNER
+            <span id="tuner-model-label" style="color:#ffaa00;font-size:10px;margin-left:8px;"></span>
+        </div>
+
+        <!-- Tab buttons -->
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+            <button id="tab-btn-weapon"  onclick="switchTunerTab('weapon')"  style="flex:1;padding:4px;background:#ffaa00;color:black;border:none;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">WEAPON</button>
+            <button id="tab-btn-melee"   onclick="switchTunerTab('melee')"   style="flex:1;padding:4px;background:#333;color:#aaa;border:1px solid #555;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">MELEE</button>
+            <button id="tab-btn-physics" onclick="switchTunerTab('physics')" style="flex:1;padding:4px;background:#333;color:#aaa;border:1px solid #555;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">PHYSICS</button>
+        </div>
+
+        <!-- WEAPON TAB -->
+        <div id="tuner-tab-weapon">
+            <div style="color:#0ff;margin-bottom:5px;">Weapon Transform</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-scale-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Position (X / Y / Z)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos X</span><input type="range" id="tune-px" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-px-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos Y</span><input type="range" id="tune-py" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-py-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos Z</span><input type="range" id="tune-pz" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-pz-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Rotation (X / Y / Z)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot X</span><input type="range" id="tune-rx" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-rx-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot Y</span><input type="range" id="tune-ry" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-ry-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot Z</span><input type="range" id="tune-rz" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-rz-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+            </div>
+            <div id="tune-bullet-section">
+                <div style="color:#0ff;margin-bottom:5px;">Bullet Spawn</div>
+                <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="tune-bx" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bx-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="tune-by" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-by-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Z</span><input type="range" id="tune-bz" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bz-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Fallback H</span><input type="range" id="tune-bh" min="0" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bh-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">From Barrel</span><input type="checkbox" id="tune-gs-fromBarrel" checked style="margin:0 8px;"><label id="tune-gs-fromBarrel-label" style="color:#ffaa00;font-size:11px;">ON</label></div>
+                    <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Gun Spawn Override (X / Y / Z)</div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn X</span><input type="range" id="tune-gs-x" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-x-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn Y</span><input type="range" id="tune-gs-y" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-y-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn Z</span><input type="range" id="tune-gs-z" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-z-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
+                </div>
+            </div>
+            <div style="color:#0ff;margin-bottom:5px;">Swing Address (melee only)</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 0 (upper_arm_R)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s0x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s0y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s0z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 1 (lower_arm_R)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s1x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s1y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s1z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 2 (hand_R)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s2x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s2y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s2z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+            </div>
+        </div>
+
+        <!-- MELEE TAB -->
+        <div id="tuner-tab-melee" style="display:none;">
+            <div style="color:#0ff;margin-bottom:5px;">Melee Stats</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Damage</span><input type="range" id="mt-damage" min="1" max="200" step="1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-damage-num" step="1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Range</span><input type="range" id="mt-range" min="1" max="100" step="0.5" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-range-num" step="0.5" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Fire Rate</span><input type="range" id="mt-fireRate" min="0.05" max="2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-fireRate-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+            </div>
+            <div style="color:#0ff;margin-bottom:5px;">Damage Box</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Offset (X / Y / Z)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off X</span><input type="range" id="mt-dbOffX" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffX-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off Y</span><input type="range" id="mt-dbOffY" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffY-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off Z</span><input type="range" id="mt-dbOffZ" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffZ-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Size (X / Y / Z)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size X</span><input type="range" id="mt-dbSzX" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzX-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Y</span><input type="range" id="mt-dbSzY" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzY-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Z</span><input type="range" id="mt-dbSzZ" min="0.1" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzZ-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Hit Window (0–1)</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Window Start</span><input type="range" id="mt-dbWinStart" min="0" max="1" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbWinStart-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Window End</span><input type="range" id="mt-dbWinEnd" min="0" max="1" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbWinEnd-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
+            </div>
+        </div>
+
+        <!-- PHYSICS TAB -->
+        <div id="tuner-tab-physics" style="display:none;">
+            <div style="color:#0ff;margin-bottom:5px;">Movement</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Walk Speed</span><input type="range" id="phys-walkSpeed" min="1" max="100" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-walkSpeed-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Run Mult</span><input type="range" id="phys-runMultiplier" min="1" max="6" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-runMultiplier-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Rate</span><input type="range" id="phys-stepRate" min="0.1" max="2" step="0.05" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepRate-num" step="0.05" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+            </div>
+            <div style="color:#0ff;margin-bottom:5px;">Jump &amp; Gravity</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Gravity</span><input type="range" id="phys-gravity" min="5" max="500" step="1" style="flex:1;margin:0 8px;"><input type="number" id="phys-gravity-num" step="1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Jump Strength</span><input type="range" id="phys-jumpStrength" min="1" max="200" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-jumpStrength-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Up</span><input type="range" id="phys-stepUp" min="0.1" max="10" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepUp-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Down</span><input type="range" id="phys-stepDown" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepDown-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+            </div>
+            <div style="color:#0ff;margin-bottom:5px;">Camera</div>
+            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pivot Y</span><input type="range" id="phys-cameraPivotY" min="0" max="50" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-cameraPivotY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Orbit Offset</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="phys-camOffsetX" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetX-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="phys-camOffsetY" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Z</span><input type="range" id="phys-camOffsetZ" min="0" max="100" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetZ-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Look Target</div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">LookAt Z</span><input type="range" id="phys-camLookAtZ" min="-500" max="0" step="1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camLookAtZ-num" step="1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+            </div>
+            <div style="color:#0ff;margin-bottom:5px;">Hitbox</div>
+            <div class="tuner-group" style="margin-bottom:10px;">
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Center Y</span><input type="range" id="phys-hitboxCY" min="0" max="30" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxCY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size X</span><input type="range" id="phys-hitboxX" min="0.5" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxX-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Y</span><input type="range" id="phys-hitboxY" min="0.5" max="40" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Z</span><input type="range" id="phys-hitboxZ" min="0.5" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxZ-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
+            </div>
+        </div>
+
+        <div id="tuner-code"></div>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('tuner-code').innerText)" style="width:100%;margin-top:6px;padding:5px;background:#222;color:#00ffcc;border:1px solid #00ffcc;font-family:'Courier New';font-size:11px;cursor:pointer;letter-spacing:2px;">📋 COPY</button>
+    </div><!-- end #dev-tuner -->
+
+</div><!-- end #ui-layer -->
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
