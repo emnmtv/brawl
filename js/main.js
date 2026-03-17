@@ -413,6 +413,96 @@ const damageUI = new DamageUI();
 let _pvpCamera = null;
 
 // ═══════════════════════════════════════════════════
+//  SCOREBOARD — TAB to toggle, tracks kills/deaths
+// ═══════════════════════════════════════════════════
+const scoreBoard = {
+    localKills:  0,
+    localDeaths: 0,
+    _visible:    false,
+    _el:         null,
+
+    init() {
+        // Inject scoreboard element dynamically so it doesn't clutter HTML
+        const el = document.createElement('div');
+        el.id = 'scoreboard';
+        el.style.cssText = `
+            display:none; position:fixed; inset:0; z-index:80;
+            align-items:center; justify-content:center;
+            background:rgba(0,0,0,0.72); backdrop-filter:blur(4px); pointer-events:none;
+        `;
+        el.innerHTML = `
+            <div style="min-width:480px;max-width:90vw;font-family:'Courier New',monospace;">
+                <div style="text-align:center;margin-bottom:18px;">
+                    <div style="font-size:11px;letter-spacing:6px;color:rgba(0,255,204,0.5);margin-bottom:4px;">PRESS TAB TO CLOSE</div>
+                    <div style="font-size:22px;font-weight:900;letter-spacing:8px;color:#00ffcc;text-shadow:0 0 16px #00ffcc;">SCOREBOARD</div>
+                </div>
+                <div style="border:1px solid rgba(0,255,204,0.2);overflow:hidden;">
+                    <div style="display:grid;grid-template-columns:1fr 80px 80px 80px;gap:0;background:rgba(0,255,204,0.08);padding:8px 14px;font-size:10px;letter-spacing:3px;color:rgba(0,255,204,0.5);border-bottom:1px solid rgba(0,255,204,0.15);">
+                        <span>CALLSIGN</span><span style="text-align:center;">HP</span><span style="text-align:center;">KILLS</span><span style="text-align:center;">DEATHS</span>
+                    </div>
+                    <div id="scoreboard-rows"></div>
+                </div>
+            </div>`;
+        document.getElementById('ui-layer').appendChild(el);
+        this._el = el;
+
+        window.addEventListener('keydown', e => {
+            if (e.code !== 'Tab') return;
+            e.preventDefault();
+            if (gameMode !== 'pvp' && gameMode !== 'dev') return;
+            this._visible = !this._visible;
+            el.style.display = this._visible ? 'flex' : 'none';
+            if (this._visible) this.refresh();
+        });
+    },
+
+    addKill()  { this.localKills++;  },
+    addDeath() { this.localDeaths++; },
+
+    refresh() {
+        const rows = document.getElementById('scoreboard-rows');
+        if (!rows) return;
+        rows.innerHTML = '';
+
+        const addRow = (name, hp, kills, deaths, isLocal, isDead) => {
+            const r = document.createElement('div');
+            const hpCol  = hp > 60 ? '#00ffcc' : hp > 25 ? '#ffaa00' : '#ff3333';
+            const nameCol = isLocal ? '#00ffff' : 'rgba(255,255,255,0.8)';
+            r.style.cssText = `display:grid;grid-template-columns:1fr 80px 80px 80px;padding:10px 14px;
+                font-size:13px;letter-spacing:2px;border-bottom:1px solid rgba(255,255,255,0.05);
+                background:${isLocal ? 'rgba(0,40,30,0.4)' : 'transparent'};
+                opacity:${isDead ? 0.4 : 1};`;
+            r.innerHTML = `
+                <span style="color:${nameCol};font-weight:${isLocal?'bold':'normal'};">
+                    ${isLocal ? '▶ ' : ''}${name}${isDead ? ' <span style="color:#ff3333;font-size:10px;">[DEAD]</span>' : ''}
+                </span>
+                <span style="text-align:center;color:${hpCol};">${isDead ? '0' : hp}</span>
+                <span style="text-align:center;color:#00ffcc;">${kills}</span>
+                <span style="text-align:center;color:#ff6666;">${deaths}</span>`;
+            rows.appendChild(r);
+        };
+
+        // Local player first
+        const localHp = player ? Math.round(player.health.currentHealth) : 0;
+        const localName = network ? network.playerName : (player ? player.modelId.toUpperCase() : 'YOU');
+        addRow(localName, localHp, this.localKills, this.localDeaths, true, player?.health?.isDead);
+
+        // Remote players
+        if (network) {
+            network.remotePlayers.forEach((rp) => {
+                addRow(rp.name || rp.id, Math.round(rp.health), rp._kills || 0, rp._deaths || 0, false, rp.isDead);
+            });
+        }
+        // Dev mode enemy
+        if (gameMode === 'dev' && enemy) {
+            const eHp = Math.round(enemy.health.currentHealth);
+            addRow('AI T-800', eHp, 0, 0, false, enemy.health.isDead);
+        }
+    },
+};
+scoreBoard.init();
+
+// ═══════════════════════════════════════════════════
 //  TUNER
 // ═══════════════════════════════════════════════════
 const tunerIds=['scale','px','py','pz','rx','ry','rz','s0x','s0y','s0z','s1x','s1y','s1z','s2x','s2y','s2z','bx','by','bz','bh'];
@@ -790,6 +880,8 @@ function respawnPlayer() {
     _camReady = false; _charMaterials = null;  // reset spring arm on respawn
     player.isJumping=false; player.yVelocity=0; player.currentUltimate=null;
     player.meleeAttacking=false; player.meleeAttackAction=null; player.meleeHitBoxActive=false;
+    player._swapping=false; player._swapAction=null; player._pendingWeapon=null;
+    clearTimeout(player._swapTimeout);
     const c=player.mesh.position.clone(); const sc=player.sizeConfig;
     c.y+=sc.hitboxCenterOffsetY;
     player.boundingBox.setFromCenterAndSize(c,new THREE.Vector3(sc.hitboxSize.x,sc.hitboxSize.y,sc.hitboxSize.z));
@@ -856,7 +948,9 @@ function startPvpMode(serverUrl,playerName,modelId) {
             player.health.takeDamage(amount);
             updatePvpHealthPanel();
             if(player.health.isDead&&!deathHandled){
-                deathHandled=true; network.reportDead();
+                deathHandled=true;
+                scoreBoard.addDeath();
+                network.reportDead();
                 damageUI.showDeath(5,'NEUTRALIZED BY ENEMY',()=>{
                     respawnPlayer();wirePlayerDamage();network.reportRespawn(player.modelId);
                     updatePvpHealthPanel();
@@ -872,11 +966,21 @@ function startPvpMode(serverUrl,playerName,modelId) {
         // ── Kill feed ────────────────────────────────────────────
         network.onKillFeed=(killerName, victimName, isLocalKill)=>{
             damageUI.addKillFeed(killerName, victimName, isLocalKill, false);
+            if(isLocalKill) {
+                scoreBoard.addKill();
+            }
         };
-        // Local player death → also add to kill feed
+
+        // ── Dead event — track remote stats for scoreboard ───────
         network.onDead=(victimId, killerId)=>{
-            // We handle our own death above via onDamage; this handles others
-            if(victimId !== network.localId) return; // already handled
+            if(victimId === network.localId) return; // own death handled via onDamage
+            const victim = network.remotePlayers.get(victimId);
+            if(victim) victim._deaths = (victim._deaths || 0) + 1;
+            if(killerId && killerId !== network.localId) {
+                const killer = network.remotePlayers.get(killerId);
+                if(killer) killer._kills = (killer._kills || 0) + 1;
+            }
+            if(scoreBoard._visible) scoreBoard.refresh();
         };
 
         // ── Join / Leave notifications ───────────────────────────
@@ -966,12 +1070,35 @@ function loop() {
         if (player) damageUI.setBlocking(!!player.isBlocking);
 
         beamPool.pool.forEach(beam=>{
-            if(!beam.userData.active||beam.userData.isEnemy||beam.userData.isRemote) return;
+            if(!beam.userData.active) return;
+
+            // ── Deflected bolts are purely visual — skip all hit checks ──
+            if(beam.userData.isDeflected) return;
+
+            // ── Remote beams (fired by other players) — visual only,
+            //    but DEFLECT them if local player is blocking ──────────
+            if(beam.userData.isRemote) {
+                if(player && !player.health.isDead && player.isBlocking &&
+                   player.weaponManager?.currentType==='melee' &&
+                   player.boundingBox.containsPoint(beam.position)) {
+                    beamPool._deflect(beam, player);
+                }
+                return;
+            }
+
+            // Skip enemy-team beams (dev mode AI — handled by beamPool.update above)
+            if(beam.userData.isEnemy) return;
+
+            // ── Local outgoing beams — check remote player hits ───────
             network.remotePlayers.forEach((rp,id)=>{
-                if(!rp.isDead&&rp.boundingBox.containsPoint(beam.position)){
+                if(!rp.isDead && rp.boundingBox.containsPoint(beam.position)){
                     const hit = network.reportHit(id, 20);
                     beam.visible=false; beam.userData.active=false;
-                    if (hit) damageUI.showHitConfirm(20, rp.mesh.position.clone());
+                    if(hit) {
+                        damageUI.showHitConfirm(20, rp.mesh.position.clone());
+                        // Track kill for scoreboard: if rp health reaches 0 after this hit
+                        // the server will emit dead+killerId which fires onKillFeed
+                    }
                 }
             });
         });

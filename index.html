@@ -87,12 +87,16 @@
             <h2>COMBAT OS · DEV</h2>
             <p>W/A/S/D: Move | SHIFT: Sprint | SPACE: Jump<br>
                MOUSE: Aim | LMB: Attack | RMB: Block (melee)<br>
-               1/2: Swap Weapon | Q/E/R: Ultimates | V: Noclip</p>
+               1/2: Swap Weapon | Q/E/R: Ultimates | V: Noclip | TAB: Scores</p>
             <div id="weapon-display-dev" class="weapon-display">
                 <div id="ui-wep-gun"   class="wep-slot active"><span class="wep-key">[1]</span> BLASTER RIFLE</div>
                 <div id="ui-wep-melee" class="wep-slot"><span class="wep-key">[2]</span> LIGHTSABER</div>
             </div>
-            <div id="target-info">
+            <div style="display:flex;gap:8px;margin-top:12px;pointer-events:all;">
+                <button id="toggle-ai-btn"     style="padding:6px 12px;background:#ffaa00;color:black;border:none;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">AI: ON</button>
+                <button id="toggle-hitbox-btn" style="padding:6px 12px;background:#444;color:white;border:1px solid #666;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">View Hitbox</button>
+            </div>
+            <div id="target-info" style="position:absolute;top:20px;right:20px;color:#ff3333;text-align:right;text-shadow:0 0 5px #ff3333;">
                 <h2>TARGET INTEGRITY</h2>
                 <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill" style="background:#ff3333;"></div></div>
             </div>
@@ -119,6 +123,7 @@
             <span class="ctrl-hint"><span>LMB</span> ATTACK</span>
             <span class="ctrl-hint"><span>RMB</span> BLOCK</span>
             <span class="ctrl-hint"><span>1/2</span> SWAP</span>
+            <span class="ctrl-hint"><span>TAB</span> SCORES</span>
         </div>
 
         <!-- Bottom-left: weapon selector cards -->

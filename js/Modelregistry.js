@@ -66,6 +66,17 @@ export const MODEL_REGISTRY = {
             melee_combo_1:          'melee_combo_1',
             melee_combo_2:          'melee_combo_2',
             melee_kick:             'melee_kick',
+            // Block animations — cycle through all that exist in your GLB
+            melee_block:            ['melee_block',   'Block',    'block'],
+            melee_block_1:          ['melee_block_1', 'Block1',   'block_1',  'melee_block'],
+            melee_block_2:          ['melee_block_2', 'Block2',   'block_2',  'melee_block'],
+            melee_block_3:          ['melee_block_3', 'Block3',   'block_3'],
+            melee_block_4:          ['melee_block_4', 'Block4',   'block_4'],
+            // Hit / damage reaction
+            hit_body:               ['hit_body', 'HitBody', 'hit', 'Hit', 'damage', 'Damage'],
+            // Weapon swap animations
+            equip_melee:            ['equip_melee',   'EquipMelee',   'equip',   'draw_melee'],
+            unequip_melee:          ['unequip_melee', 'UnequipMelee', 'unequip', 'holster_melee'],
             // Basic left-click attack animations — map to your actual GLB clip names.
             // First candidate that exists in the loaded GLB wins.
             melee_attack_1: ['melee_1', 'Melee1', 'melee_attack_1', 'melee_combo_1'],
@@ -163,7 +174,14 @@ physics: {
             melee_attack_1: ['melee_1', ],
             melee_attack_2: ['melee_2', ],
             melee_attack_3: ['melee_3', ],
-            melee_block: ['melee_block_4'],
+            melee_block:    ['melee_block',   'Block',  'block',  ],
+            melee_block_1:  ['melee_block_1', 'Block1', 'block_1', 'melee_block', ],
+            melee_block_2:  ['melee_block_2', 'Block2', 'block_2', 'melee_block', ],
+            melee_block_3:  ['melee_block_3', 'Block3', 'block_3'],
+            melee_block_4:  ['melee_block_4', 'Block4', 'block_4'],
+            hit_body:       ['hit_body', 'HitBody', 'hit', 'Hit', 'damage'],
+            equip_melee:    ['equip_melee_1',   'EquipMelee',   'equip',   'draw_melee'],
+            unequip_melee:  ['equip_melee_1', 'UnequipMelee', 'unequip', 'holster_melee'],
 
         },
        // Model: walterwhite

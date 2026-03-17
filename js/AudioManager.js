@@ -25,7 +25,11 @@ export class AudioManager {
     resumeContext() { if (this.listener.context.state === 'suspended') this.listener.context.resume(); }
 
     playGunfire() { if (!this.gunSound.isPlaying) { this.gunSound.offset = CONFIG.AUDIO.GUN_START; this.gunSound.setLoop(true); this.gunSound.play(); } }
-    stopGunfire() { if (this.gunSound.isPlaying) this.gunSound.stop(); }
+    stopGunfire() {
+        // Force-stop even if Three.js isPlaying flag is stale
+        try { if (this.gunSound.source) { this.gunSound.stop(); } else if (this.gunSound.isPlaying) { this.gunSound.stop(); } } catch(_) {}
+        this.gunSound.isPlaying = false;
+    }
 
     playMeleeSwoosh() { if (this.meleeSound.buffer) { if (this.meleeSound.isPlaying) this.meleeSound.stop(); this.meleeSound.play(); } }
 
@@ -38,7 +42,8 @@ export class AudioManager {
 
     stopAll() {
         this.stopGunfire();
-        if (this.stepSound.isPlaying) this.stepSound.stop();
+        try { if (this.stepSound.isPlaying) this.stepSound.stop(); } catch(_) {}
         clearTimeout(this.stepSound.stopTimer);
+        try { if (this.meleeSound.isPlaying) this.meleeSound.stop(); } catch(_) {}
     }
 }

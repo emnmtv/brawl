@@ -23,15 +23,22 @@ class RemotePlayer {
         this._activeAction = null;
 
         // ── Melee / block animation state ─────────────────────────
-        this._meleeAttackKey   = null;   // last key we triggered as LoopOnce
-        this._incomingKey      = null;   // incoming from move packet
+        this._meleeAttackKey   = null;
+        this._incomingKey      = null;
         this._isMeleeAttacking = false;
-        this._isAttacking      = false;  // true while LoopOnce plays
+        this._isAttacking      = false;
         this._attackAction     = null;
         this._isBlocking       = false;
+        this._wasBlocking      = false;   // rising-edge detection
+        this._blockAnims       = [];      // filled after GLB loads
+        this._blockIdx         = 0;
+        this._currentBlockAct  = null;
 
-        // ── Locomotion state ───────────────────────────────────────
-        this._isShooting = false; this._isMoving  = false; this._isJumping = false;
+        // Weapon swap animation state
+        this._isSwapping       = false;
+        this._swapAnimKey      = null;
+        this._lastSwapKey      = null;   // so we only trigger LoopOnce once per key
+        this._swapAction       = null;
         this._forward = false;    this._backward  = false;
         this._left = false;       this._right     = false; this._isSprinting = false;
 
@@ -75,6 +82,17 @@ class RemotePlayer {
             this._isAttacking  = false;
             this._attackAction = null;
             this._meleeAttackKey = null;
+            this._currentBlockAct = null;
+            this._isSwapping  = false;
+            this._swapAnimKey = null;
+            this._lastSwapKey = null;
+            this._swapAction  = null;
+
+            // Build block anim list for cycling
+            const blockKeys = ['melee_block','melee_block_1','melee_block_2','melee_block_3','melee_block_4'];
+            this._blockAnims = blockKeys.filter(k => !!this.actions[k]);
+            if (this._blockAnims.length === 0 && this.actions['melee_idle']) this._blockAnims = ['melee_idle'];
+            this._blockIdx = 0;
             this.mesh.visible = !this.isDead;
 
             const sc = getSizeConfig(modelId);
@@ -115,6 +133,10 @@ class RemotePlayer {
         this._incomingKey      = state.meleeAttackKey || null;
         this._isBlocking       = !!state.isBlocking;
 
+        // Weapon swap sync
+        this._isSwapping  = !!state.isSwapping;
+        this._swapAnimKey = state.swapAnimKey || null;
+
         if (state.modelId && state.modelId !== this.modelId) this._loadModel(state.modelId);
         if (state.weaponType && state.weaponType !== this.weaponManager.currentType)
             this.weaponManager.equip(state.weaponType);
@@ -124,6 +146,10 @@ class RemotePlayer {
         this.health = 100; this.isDead = false; this.mesh.visible = true;
         this._activeAction = null; this._isAttacking = false;
         this._attackAction = null; this._meleeAttackKey = null;
+        this._currentBlockAct = null; this._wasBlocking = false;
+        this._isBlocking = false; this._blockIdx = 0;
+        this._isSwapping = false; this._swapAnimKey = null;
+        this._lastSwapKey = null; this._swapAction = null;
         if (state?.modelId && state.modelId !== this.modelId) this._loadModel(state.modelId);
         if (state?.pos) this.applyState(state);
     }
@@ -193,16 +219,51 @@ class RemotePlayer {
         if (this.mixer) {
             const isMelee = this.weaponManager.currentType === 'melee';
 
+            // ── PRIORITY 0: WEAPON SWAP — highest, overrides everything ─
+            let _swapHandled = false;
+            if (this._isSwapping && this._swapAnimKey &&
+                this._swapAnimKey !== this._lastSwapKey) {
+                const swapAct = this.actions[this._swapAnimKey]
+                             || this.actions[this._swapAnimKey.toLowerCase()];
+                if (swapAct) {
+                    this._lastSwapKey  = this._swapAnimKey;
+                    this._swapAction   = swapAct;
+                    swapAct.reset();
+                    swapAct.setLoop(THREE.LoopOnce, 1);
+                    swapAct.clampWhenFinished = true;
+                    swapAct.setEffectiveWeight(1).play();
+                    if (this._activeAction && this._activeAction !== swapAct)
+                        this._activeAction.crossFadeTo(swapAct, 0.08, true);
+                    this._activeAction = swapAct;
+                    _swapHandled = true;
+                }
+            }
+            // Clear swap key once remote stops swapping
+            if (!this._isSwapping) this._lastSwapKey = null;
+
+            if (!_swapHandled) {
+            // ── Rising-edge detection ─────────────────────────────────
+            const blockRising = this._isBlocking && !this._wasBlocking;
+            this._wasBlocking = this._isBlocking;
+
+            // Clear block state when no longer blocking (independent of priority chain)
+            if (!this._isBlocking) this._currentBlockAct = null;
+
             // ── PRIORITY 1: BLOCKING ─────────────────────────────────
             if (this._isBlocking && isMelee) {
-                const blockAct = this.actions['melee_block'] || this.actions['melee_idle'];
-                if (blockAct && this._activeAction !== blockAct) {
-                    blockAct.reset().setEffectiveWeight(1).play();
-                    if (this._activeAction) this._activeAction.crossFadeTo(blockAct, 0.1, true);
-                    this._activeAction = blockAct;
-                    this._isAttacking  = false;
-                    this._attackAction = null;
-                    this._meleeAttackKey = null;
+                if ((blockRising || !this._currentBlockAct) && this._blockAnims.length > 0) {
+                    const key      = this._blockAnims[this._blockIdx % this._blockAnims.length];
+                    this._blockIdx++;
+                    const blockAct = this.actions[key];
+                    if (blockAct && this._activeAction !== blockAct) {
+                        blockAct.reset().setEffectiveWeight(1).play();
+                        if (this._activeAction) this._activeAction.crossFadeTo(blockAct, 0.1, true);
+                        this._activeAction    = blockAct;
+                        this._currentBlockAct = blockAct;
+                        this._isAttacking     = false;
+                        this._attackAction    = null;
+                        this._meleeAttackKey  = null;
+                    }
                 }
             }
             // ── PRIORITY 2: NEW MELEE ATTACK (key changed → LoopOnce) ─
@@ -247,11 +308,12 @@ class RemotePlayer {
                     }
                 }
             }
+            } // end if (!_swapHandled)
 
             this.mixer.update(dt);
         }
 
-        // Hitbox
+        // Hitbox — always update regardless of animation path
         const sc = getSizeConfig(this.modelId);
         const c  = this.mesh.position.clone(); c.y += sc.hitboxCenterOffsetY;
         this.boundingBox.setFromCenterAndSize(
@@ -402,6 +464,11 @@ export class NetworkManager {
                                         ? localPlayer.meleeAttackAction.getClip().name
                                         : null,
                     isBlocking:      localPlayer.isBlocking,
+                    // Weapon swap sync
+                    isSwapping:      localPlayer._swapping,
+                    swapAnimKey:     localPlayer._swapAction
+                                        ? localPlayer._swapAction.getClip().name
+                                        : null,
                 },
             }));
         }
