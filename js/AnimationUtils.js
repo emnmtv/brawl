@@ -1,4 +1,4 @@
-import { getModel, logicalKeyForClip } from './ModelRegistry.js';
+import { getModel, logicalKeyForClip, getAnimCandidates } from './ModelRegistry.js';
 
 /**
  * ─────────────────────────────────────────────────────────────
@@ -19,19 +19,23 @@ import { getModel, logicalKeyForClip } from './ModelRegistry.js';
  * ─────────────────────────────────────────────────────────────
  */
 export function buildActionMap(clips, mixer, modelId) {
-    const profile    = getModel(modelId);
+    const profile     = getModel(modelId);
     const upperBodyRx = profile.upperBodyPattern || /(spine|chest|arm|hand|head|neck)/;
 
-    const actions = {};
+    // Build a lookup: actual clip name (lowercased) → Three.js AnimationAction
+    const clipByName = {};
+    const actions    = {};
     let shootSlotKey = 'shoot_idle';
 
+    // ── Pass 1: register every clip by its actual name + reverse-mapped logical key ──
     clips.forEach(clip => {
         const actualLower = clip.name.toLowerCase();
-        const logicalKey  = logicalKeyForClip(modelId, clip.name) || actualLower;
+        clipByName[actualLower] = clip;
 
+        const logicalKey = logicalKeyForClip(modelId, clip.name) || actualLower;
         actions[logicalKey] = mixer.clipAction(clip);
 
-        // Alias under actual name — keeps raw-name lookups working
+        // Alias under actual name so raw-name lookups still work
         if (logicalKey !== actualLower) actions[actualLower] = actions[logicalKey];
 
         // Auto upper-body mask for shoot/fire family clips
@@ -43,6 +47,31 @@ export function buildActionMap(clips, mixer, modelId) {
                 t => t.name.toLowerCase().match(upperBodyRx)
             );
             actions[maskedClip.name] = mixer.clipAction(maskedClip);
+        }
+    });
+
+    // ── Pass 2: forward-map every logical key in the registry ────────────────────────
+    // This is what makes  melee_walk_forward: 'walk_forward'  work.
+    // For each logical key, find the target clip name(s) from the registry and
+    // point that logical key at the matching action — even if the clip was already
+    // registered under a different logical key in pass 1.
+    const animMap = profile.animations || {};
+    Object.entries(animMap).forEach(([logicalKey, mapped]) => {
+        if (actions[logicalKey]) return;   // already registered in pass 1 — skip
+
+        const candidates = Array.isArray(mapped) ? mapped : [mapped];
+        for (const candidate of candidates) {
+            const candidateLower = candidate.toLowerCase();
+            // Direct hit: a clip with this exact name exists
+            if (clipByName[candidateLower]) {
+                actions[logicalKey] = mixer.clipAction(clipByName[candidateLower]);
+                break;
+            }
+            // Indirect hit: the candidate is itself a logical key that was already resolved
+            if (actions[candidateLower]) {
+                actions[logicalKey] = actions[candidateLower];
+                break;
+            }
         }
     });
 
@@ -172,9 +201,8 @@ export function resolveAnimationTarget(state, actions) {
             'walk_forward_right', 'walk_forward', 'idle'
         );
         if (forward) return pick(
-            p  && isShooting ? 'run_forward_firing'  : null,
-            !p && isShooting ? 'walk_forward_firing' : null,
-            p ? 'run_forward' : 'walk_forward',
+            p && isShooting ? 'run_forward_firing' : null,
+            p ? 'run_forward'   : 'walk_forward',
             'walk_forward', 'idle'
         );
 

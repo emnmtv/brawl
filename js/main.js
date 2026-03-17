@@ -28,6 +28,150 @@ const inputManager = new InputManager(camera, audioManager);
 const beamPool     = new BeamPool(scene);
 
 let gameMode = null, player = null, enemy = null, network = null, mapLoader = null, isRunning = false;
+
+// ═══════════════════════════════════════════════════
+//  SPRING ARM CAMERA
+//  Proper 3rd-person: orbit around focus, raycast arm,
+//  character fades when camera is forced too close.
+// ═══════════════════════════════════════════════════
+const _springRay     = new THREE.Raycaster();
+const _camFocus      = new THREE.Vector3();
+const _camLookTarget = new THREE.Vector3();
+const _aimDir        = new THREE.Vector3();   // true aim direction, set every frame
+const _camDesired    = new THREE.Vector3();
+const _camSmoothed   = new THREE.Vector3();
+let   _camReady      = false;          // skip lerp on first frame
+let   _charMaterials = null;           // cached material list for fade
+
+function _buildMatCache(player) {
+    _charMaterials = [];
+    player.mesh.traverse(child => {
+        if (child.isMesh && child.material) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach(m => {
+                m.transparent = true;
+                _charMaterials.push(m);
+            });
+        }
+    });
+}
+
+function updateSpringCamera(player, camera, inputManager, collisionMeshes) {
+    const sc    = player.sizeConfig;
+    // Camera yaw is driven by mouse ONLY — independent of character facing.
+    // Character facing is handled in Character.js based on movement/shooting.
+    const yaw   = inputManager.mouseLookX;
+    const pitch = inputManager.mouseLookY;
+
+    // World-space direction vectors
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+    const fwdX = -sinY, fwdZ = -cosY;   // character forward in world
+    const rgtX =  cosY, rgtZ = -sinY;   // character right in world
+
+    // ═══════════════════════════════════════════════════════════
+    //  BATTLEFRONT 2 / RE4 CAMERA STYLE
+    //
+    //  CAMERA is close behind the character at shoulder height.
+    //  LOOK TARGET is far ahead at eye level.
+    //  Result: character fills bottom-center of screen, world
+    //  stretches out above them — exactly like the reference.
+    //
+    //  Tunable via physics camOffset in the registry:
+    //    camOffset.z  = spring arm length (back distance)
+    //    camOffset.x  = shoulder offset (right of center)
+    //    camOffset.y  = extra height tweak
+    //    cameraPivotY = character eye/shoulder level
+    // ═══════════════════════════════════════════════════════════
+
+    // ══════════════════════════════════════════════════════════
+    //  OVER-THE-SHOULDER CAMERA  (GTA5 / Uncharted style)
+    //
+    //  Camera sits behind + above the right shoulder.
+    //  Look target is far ahead in the world — this is what
+    //  makes the character appear in the LOWER-RIGHT of the
+    //  frame rather than dead-centre.
+    //
+    //  camOffset.z  → spring arm length  (back distance)
+    //  camOffset.x  → shoulder offset    (right of centre)
+    //  camOffset.y  → extra height tweak
+    //  cameraPivotY → eye / shoulder level
+    // ══════════════════════════════════════════════════════════
+
+    const ARM   = sc.camOffset.z;           // full arm length from registry
+    const SIDE  = sc.camOffset.x * 1.6;    // right shoulder — wider pushes char left in frame
+    const CAM_Y = sc.cameraPivotY * 0.85 + sc.camOffset.y;  // camera height above feet
+
+    // Look target is FAR ahead — this is the key to the character appearing
+    // in the bottom of the screen rather than the middle.
+    const LOOK_FWD = ARM * 5.0;            // look distance forward in world
+    const LOOK_Y   = sc.cameraPivotY * 1.1; // look at just above eye level
+
+    // ── Camera orbit (pitch tilts camera up/down around shoulder pivot) ──
+    const cosP = Math.cos(-pitch);
+    const sinP = Math.sin(-pitch);
+
+    _camDesired.set(
+        player.mesh.position.x - fwdX * ARM * cosP + rgtX * SIDE,
+        player.mesh.position.y + CAM_Y - ARM * sinP,
+        player.mesh.position.z - fwdZ * ARM * cosP + rgtZ * SIDE
+    );
+
+    // ── Spring arm anchor (right-shoulder world position) ─────
+    // Anchor is offset to the right shoulder so the arm starts there,
+    // not at the spine — this prevents the camera clipping the body.
+    _camFocus.set(
+        player.mesh.position.x + rgtX * SIDE * 0.3,
+        player.mesh.position.y + sc.cameraPivotY,
+        player.mesh.position.z + rgtZ * SIDE * 0.3
+    );
+
+    // ── Spring arm collision ──────────────────────────────────
+    const armVec  = _camDesired.clone().sub(_camFocus);
+    const armFull = armVec.length();
+    const armDir  = armVec.clone().divideScalar(armFull);
+
+    _springRay.set(_camFocus, armDir);
+    _springRay.near = 0.05;
+    _springRay.far  = armFull;
+
+    let actualLen = armFull;
+    if (collisionMeshes && collisionMeshes.length) {
+        const hits = _springRay.intersectObjects(collisionMeshes, false);
+        if (hits.length > 0) actualLen = Math.max(0.5, hits[0].distance - 0.3);
+    }
+
+    const actualPos = _camFocus.clone().addScaledVector(armDir, actualLen);
+
+    // ── Smooth position ───────────────────────────────────────
+    if (!_camReady) { _camSmoothed.copy(actualPos); _camReady = true; }
+    else            { _camSmoothed.lerp(actualPos, 0.18); }
+    camera.position.copy(_camSmoothed);
+
+    // ── Look target: far ahead in the world ──────────────────
+    // Camera looks at a point far in front of the character.
+    // Character is NOT the look target — they're just in the way.
+    // This is what keeps them in the lower portion of the frame.
+    _camLookTarget.set(
+        player.mesh.position.x + fwdX * LOOK_FWD * cosP,
+        player.mesh.position.y + LOOK_Y + LOOK_FWD * sinP * 0.4,
+        player.mesh.position.z + fwdZ * LOOK_FWD * cosP
+    );
+    camera.lookAt(_camLookTarget);
+
+    // ── TRUE AIM DIRECTION — from camera toward crosshair ─────
+    // This is what bullets must use. It equals the camera's forward
+    // direction after lookAt(), which is exactly where the crosshair points.
+    camera.getWorldDirection(_aimDir);
+    inputManager.aimDir = _aimDir;  // Weapons.js reads this every fire
+
+    // ── Character fade when spring arm is compressed ──────────
+    if (!_charMaterials && player.mesh.children.length > 0) _buildMatCache(player);
+    if (_charMaterials) {
+        const ratio   = actualLen / armFull;
+        const opacity = ratio < 0.35 ? Math.max(0, ratio / 0.35) : 1.0;
+        _charMaterials.forEach(m => { m.opacity = opacity; });
+    }
+}
 let playerBoxHelper = null, enemyBoxHelper = null, showHitbox = false, deathHandled = false;
 let selectedModelId = null, pendingMode = null;
 
@@ -416,6 +560,7 @@ function respawnPlayer() {
     player.health.currentHealth=player.health.maxHealth; player.health.isDead=false;
     if(player.health.uiElement) player.health.uiElement.style.width='100%';
     player.mesh.position.set((Math.random()-0.5)*100, 5, (Math.random()-0.5)*100);
+    _camReady = false; _charMaterials = null;  // reset spring arm on respawn
     player.isJumping=false; player.yVelocity=0; player.currentUltimate=null; player.isSwinging=false; player.swingProgress=0;
     const c=player.mesh.position.clone(); const sc=player.sizeConfig;
     c.y+=sc.hitboxCenterOffsetY;
@@ -507,10 +652,11 @@ function loop() {
         if(mapLoader&&mapLoader.isLoaded) player.snapToGround(mapLoader.collisionMeshes);
         player.update(dt,clock,inputManager,audioManager,{beamPool,enemies:enemy&&!enemy.health.isDead?[enemy]:[],network});
 
-        // ── Camera offsets from sizeConfig — auto-adjusts per selected character ──
-        const co=player.sizeConfig.camOffset, cl=player.sizeConfig.camLookAt;
-        camera.position.lerp(player.cameraPivot.localToWorld(new THREE.Vector3(co.x,co.y,co.z)),0.4);
-        camera.lookAt(player.cameraPivot.localToWorld(new THREE.Vector3(cl.x,cl.y,cl.z)));
+        // ── Spring arm 3rd-person camera ──────────────────────────
+        updateSpringCamera(
+            player, camera, inputManager,
+            mapLoader && mapLoader.isLoaded ? mapLoader.collisionMeshes : []
+        );
 
         if(playerBoxHelper){playerBoxHelper.box.copy(player.boundingBox);playerBoxHelper.visible=showHitbox;}
 

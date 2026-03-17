@@ -48,7 +48,11 @@ export class Character {
             this.mesh.add(model);
 
             const boneNames = [];
-            model.traverse(child => { if (child.isBone) boneNames.push(child.name); });
+            model.traverse(child => {
+                if (child.isBone) boneNames.push(child.name);
+                // Prevent character from disappearing when camera angle is extreme
+                if (child.isMesh) child.frustumCulled = false;
+            });
             console.group(`%c[${modelId}] Bones (${boneNames.length} total)`, 'color:#00ffcc;font-weight:bold;');
             boneNames.forEach((name, i) => console.log(`  ${String(i).padStart(3, '0')}  ${name}`));
             console.groupEnd();
@@ -57,6 +61,28 @@ export class Character {
             console.group(`%c[${modelId}] Animation clips (${clipNames.length} total)`, 'color:#ffaa00;font-weight:bold;');
             clipNames.forEach((name, i) => console.log(`  ${String(i).padStart(3, '0')}  ${name}`));
             console.groupEnd();
+
+            // Store head + spine bones for live aim tracking.
+            // spineBones is an array so rigs with multiple spine segments
+            // (like the T-800's bip_spine_0..3) can all contribute to the look.
+            this._headBone   = model.getObjectByName(getBoneName(modelId, 'head'));
+            this._spineBones = [];
+            const spineKeys  = ['spine', 'spine_upper'];
+            spineKeys.forEach(key => {
+                const boneName = getBoneName(modelId, key);
+                // Only add if it resolves to a real, different bone name
+                if (boneName && boneName !== key) {
+                    const bone = model.getObjectByName(boneName);
+                    if (bone && !this._spineBones.includes(bone)) this._spineBones.push(bone);
+                }
+            });
+            // Fallback: if no spine bones found via logical keys, try generic names
+            if (this._spineBones.length === 0) {
+                ['spine', 'Spine', 'mixamorigSpine', 'bip_spine_2'].forEach(name => {
+                    const bone = model.getObjectByName(name);
+                    if (bone) this._spineBones.push(bone);
+                });
+            }
 
             this.mixer = new THREE.AnimationMixer(model);
 
@@ -126,12 +152,15 @@ export class Character {
         }
         if (this.currentUltimate) { this.ultimateTimer += dt; if (this.ultimateTimer > 1.5) this.currentUltimate = null; }
 
-        const localForward = new THREE.Vector3(0,0,-1).applyEuler(this.mesh.rotation); localForward.y = 0; localForward.normalize();
-        const localRight   = new THREE.Vector3(1,0, 0).applyEuler(this.mesh.rotation); localRight.y   = 0; localRight.normalize();
+        // ── Movement dirs are relative to CAMERA yaw, not character yaw ─
+        // This means W always moves toward where the camera is looking.
+        const camYaw   = inputManager.mouseLookX;
+        const camSinY  = Math.sin(camYaw),  camCosY = Math.cos(camYaw);
+        const camFwd   = new THREE.Vector3(-camSinY, 0, -camCosY);  // camera forward (flat)
+        const camRight = new THREE.Vector3( camCosY, 0, -camSinY);  // camera right (flat)
 
         const canMove = dir => {
             if (!this._collisionMeshes.length) return true;
-            // Guard: ensure wallRayHeights is always iterable even on partial physics blocks
             const rayHeights = Array.isArray(sc.wallRayHeights)
                 ? sc.wallRayHeights
                 : [sc.height * 0.083, sc.height * 0.417, sc.height * 0.75];
@@ -143,13 +172,36 @@ export class Character {
             return true;
         };
 
-        if (forward)  { if (canMove(localForward))               this.mesh.position.addScaledVector(localForward, speed * dt);                    isMoving = true; }
-        if (backward) { const d = localForward.clone().negate();  if (canMove(d)) this.mesh.position.addScaledVector(d, this.baseWalkSpeed * dt);  isMoving = true; }
-        if (left)     { const d = localRight.clone().negate();    if (canMove(d)) this.mesh.position.addScaledVector(d, this.baseWalkSpeed * dt);  isMoving = true; }
-        if (right)    { if (canMove(localRight))                  this.mesh.position.addScaledVector(localRight, this.baseWalkSpeed * dt);         isMoving = true; }
+        // Accumulate desired move direction from WASD relative to camera
+        const moveDir = new THREE.Vector3();
+        if (forward)  moveDir.addScaledVector(camFwd,              1);
+        if (backward) moveDir.addScaledVector(camFwd,             -1);
+        if (left)     moveDir.addScaledVector(camRight,            -1);
+        if (right)    moveDir.addScaledVector(camRight,             1);
 
-        this.mesh.rotation.y        = inputManager.mouseLookX;
-        this.cameraPivot.rotation.x = inputManager.mouseLookY;
+        if (moveDir.lengthSq() > 0) {
+            moveDir.normalize();
+            const moveSpeed = isSprinting ? this.baseWalkSpeed * this.runSpeedMultiplier : this.baseWalkSpeed;
+            if (canMove(moveDir)) {
+                this.mesh.position.addScaledVector(moveDir, moveSpeed * dt);
+                isMoving = true;
+            }
+        }
+
+        // ── Character rotation ────────────────────────────────────
+        // Character ALWAYS faces camera direction — same as GTA/Uncharted.
+        // targetYaw = camYaw directly: the model's rootRotation=Math.PI is already
+        // baked into the GLB child, so mesh.rotation.y = camYaw gives correct facing.
+        const targetYaw = camYaw;
+
+        // Smooth shortest-path rotation (prevents 360° spin)
+        let dYaw = targetYaw - this.mesh.rotation.y;
+        while (dYaw >  Math.PI) dYaw -= Math.PI * 2;
+        while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+        this.mesh.rotation.y += dYaw * Math.min(1, 14 * dt);
+
+        // cameraPivot pitch — AIMING ONLY (Weapons.js reads getWorldDirection)
+        this.cameraPivot.rotation.x = -inputManager.mouseLookY;
 
         if (jump && !this.isJumping && !inputManager.isNoclip) { this.isJumping = true; this.yVelocity = this.jumpStrength; }
         if (this.isJumping || this.mesh.position.y > this._groundY) {
@@ -166,9 +218,24 @@ export class Character {
         }
 
         if (this.mixer) {
+            // Compute movement direction relative to CHARACTER facing for animation resolver.
+            // This way walk_backward plays when the character is moving away from their facing,
+            // walk_left when strafing left relative to their body, etc.
+            let animFwd = false, animBack = false, animLeft = false, animRight = false;
+            if (isMoving && moveDir.lengthSq() > 0) {
+                const charAngle = this.mesh.rotation.y;
+                const charFwdX  = -Math.sin(charAngle), charFwdZ = -Math.cos(charAngle);
+                const charRgtX  =  Math.cos(charAngle), charRgtZ = -Math.sin(charAngle);
+                const dotFwd = moveDir.x * charFwdX + moveDir.z * charFwdZ;
+                const dotRgt = moveDir.x * charRgtX + moveDir.z * charRgtZ;
+                if (dotFwd >  0.35) animFwd  = true;
+                if (dotFwd < -0.35) animBack = true;
+                if (dotRgt >  0.35) animRight = true;
+                if (dotRgt < -0.35) animLeft  = true;
+            }
             const targetAnim = resolveAnimationTarget({
                 isMoving, isShooting: inputManager.isShooting, isJumping: this.isJumping,
-                forward, backward, left, right, isSprinting,
+                forward: animFwd, backward: animBack, left: animLeft, right: animRight, isSprinting,
                 weaponType: this.weaponManager.currentType, ultimate: this.currentUltimate,
             }, this.actions);
             if (targetAnim) this.playAction(targetAnim);
@@ -179,6 +246,19 @@ export class Character {
                 ua.setEffectiveWeight(THREE.MathUtils.lerp(ua.getEffectiveWeight(), (inputManager.isShooting && isMoving && !this.isJumping) ? 1 : 0, 0.15));
             }
             this.mixer.update(dt);
+
+            // ── Head + spine aim tracking ─────────────────────────────
+            // Applied AFTER mixer.update() so it overrides the animation pose.
+            // Pitch is distributed: head takes the most, each spine bone takes
+            // an equal share of the remainder. This works for both single-bone
+            // rigs (Mixamo) and multi-bone rigs (T-800's 4 spine segments).
+            const pitch = inputManager.mouseLookY;
+            if (this._headBone) this._headBone.rotation.x += pitch * 0.55;
+            if (this._spineBones && this._spineBones.length > 0) {
+                // Share remaining pitch evenly across all spine bones found
+                const spineShare = (pitch * 0.45) / this._spineBones.length;
+                this._spineBones.forEach(bone => { bone.rotation.x += spineShare; });
+            }
         }
 
         // Procedural Swing — read config from the per-model weapon config
@@ -218,7 +298,7 @@ export class Character {
         }
 
         if (inputManager.isShooting && !this.currentUltimate && !inputManager.isNoclip) {
-            const fired = this.weaponManager.attemptFire(clock, { player: this, beamPool, enemies, network, isRemote: false });
+            const fired = this.weaponManager.attemptFire(clock, { player: this, beamPool, enemies, network, inputManager, isRemote: false });
             if (fired && this.weaponManager.currentType === 'melee') audioManager.playMeleeSwoosh();
         }
     }

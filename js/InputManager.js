@@ -53,8 +53,9 @@ export class InputManager {
             this.freecamPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.freecamPitch));
         } else {
             this.mouseLookX -= e.movementX * 0.002;
-            this.mouseLookY -= e.movementY * 0.002;
-            this.mouseLookY = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.mouseLookY));
+            this.mouseLookY += e.movementY * 0.002;   // raw: spring arm inverts on its end
+            // PI/2.2 gives ~81° vertical range; spring arm in main.js prevents geometry clip
+            this.mouseLookY = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.mouseLookY));
         }
     }
 
