@@ -1,332 +1,566 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>brawl</title>
-    <link rel="stylesheet" href="style.css">
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
-            }
-        }
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.min.js"></script>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>ACTION ARENA — DEV BUILD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <script type="importmap">
+  {
+    "imports": {
+      "three":         "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --neon:#00f5d4; --neon2:#ff6b35; --danger:#ff2244; --warn:#ffbe0b; --safe:#06d6a0;
+      --bg:#080c14; --panel:rgba(8,12,20,.92); --border:rgba(0,245,212,.22);
+      --text:#c8d8e8; --font-ui:'Rajdhani',sans-serif; --font-mono:'Share Tech Mono',monospace;
+      /* dev panel */
+      --dev-bg:rgba(4,8,16,.97); --dev-border:rgba(0,245,212,.18);
+      --dev-accent:#00f5d4; --dev-accent2:#ff6b35;
+      --dev-row:rgba(255,255,255,.03); --dev-row-h:rgba(0,245,212,.06);
+    }
+    html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-ui)}
+    #game-canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0}
+
+    /* ─── LOADING ─── */
+    #loading-screen{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg)}
+    .load-logo{font-size:3.5rem;font-weight:700;letter-spacing:.2em;color:var(--neon);text-shadow:0 0 30px var(--neon);margin-bottom:.3em}
+    .load-sub{font-family:var(--font-mono);font-size:.8rem;color:rgba(0,245,212,.5);letter-spacing:.3em;margin-bottom:3rem}
+    .load-bar-wrap{width:300px;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+    #load-bar{height:100%;background:var(--neon);box-shadow:0 0 12px var(--neon);width:0%;transition:width .3s ease;animation:ldP 1.5s ease-in-out infinite}
+    @keyframes ldP{0%,100%{opacity:1}50%{opacity:.5}}
+    #load-text{margin-top:1rem;font-family:var(--font-mono);font-size:.7rem;color:rgba(200,216,232,.4);letter-spacing:.15em}
+
+    /* ─── CHAR SELECT ─── */
+    #char-select{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(160deg,#04080f 0%,#080c14 60%,#0a1220 100%)}
+    .select-title{font-size:2.2rem;font-weight:700;letter-spacing:.18em;color:var(--neon);text-shadow:0 0 24px var(--neon);margin-bottom:.3em}
+    .select-sub{font-family:var(--font-mono);font-size:.72rem;color:rgba(0,245,212,.45);letter-spacing:.25em;margin-bottom:2.5rem}
+    #char-select-grid{display:flex;gap:1.4rem;flex-wrap:wrap;justify-content:center;max-width:980px;padding:0 1rem;margin-bottom:2.5rem}
+    .char-card{width:220px;background:var(--panel);border:1px solid var(--border);border-radius:4px;overflow:hidden;cursor:pointer;transition:border-color .2s,transform .2s,box-shadow .2s;position:relative}
+    .char-card:hover{border-color:rgba(0,245,212,.6);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,245,212,.12)}
+    .char-card.selected{border-color:var(--neon);box-shadow:0 0 0 1px var(--neon),0 12px 40px rgba(0,245,212,.25)}
+    .char-preview{height:100px;width:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;position:relative;overflow:hidden}
+    .char-preview::after{content:'';position:absolute;bottom:0;left:0;right:0;height:40px;background:linear-gradient(transparent,var(--panel))}
+    .char-info{padding:1rem}
+    .char-info h3{font-size:1.1rem;font-weight:700;letter-spacing:.06em;color:#fff;margin-bottom:.4rem}
+    .char-stats{font-family:var(--font-mono);font-size:.68rem;color:rgba(200,216,232,.6);margin-bottom:.6rem;display:flex;gap:1rem}
+    .char-stats span:first-child{color:var(--neon)}
+    .char-weapon{font-size:.78rem;color:var(--warn);margin-bottom:.5rem;letter-spacing:.04em}
+    .char-skill{font-size:.72rem;color:rgba(200,216,232,.55);line-height:1.6}
+    .char-skill .key{display:inline-block;padding:0 5px;background:rgba(0,245,212,.12);border:1px solid rgba(0,245,212,.3);border-radius:2px;color:var(--neon);font-family:var(--font-mono);font-size:.65rem;margin-right:4px}
+    #start-btn{padding:.75rem 3.5rem;font-family:var(--font-ui);font-size:1rem;font-weight:700;letter-spacing:.2em;color:var(--bg);background:var(--neon);border:none;border-radius:2px;cursor:pointer;text-transform:uppercase;transition:box-shadow .2s,transform .15s}
+    #start-btn:hover{box-shadow:0 0 30px rgba(0,245,212,.5);transform:scale(1.03)}
+    .controls-hint{margin-top:1.5rem;font-family:var(--font-mono);font-size:.65rem;color:rgba(200,216,232,.3);letter-spacing:.1em;text-align:center}
+    .controls-hint strong{color:rgba(0,245,212,.5)}
+
+    /* ─── HUD ─── */
+    #hud{position:fixed;inset:0;z-index:10;pointer-events:none}
+    #crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:20px;height:20px;pointer-events:none}
+    #crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.8)}
+    #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
+    #crosshair::after{width:100%;height:2px;top:50%;transform:translateY(-50%)}
+    #health-panel{position:absolute;bottom:2rem;left:2rem;width:280px}
+    .health-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+    .health-label{font-family:var(--font-mono);font-size:.65rem;letter-spacing:.15em;color:rgba(200,216,232,.5)}
+    #health-text{font-family:var(--font-mono);font-size:.8rem;color:#fff;font-weight:bold}
+    .health-bar-bg{height:8px;background:rgba(255,255,255,.06);border-radius:1px;border:1px solid rgba(255,255,255,.08);overflow:hidden}
+    #health-fill{height:100%;background:var(--safe);border-radius:1px;transition:width .15s ease,background-color .3s;box-shadow:0 0 8px currentColor}
+    #char-name{margin-top:8px;font-size:.75rem;font-weight:600;letter-spacing:.12em;color:rgba(200,216,232,.5)}
+    #skills-panel{position:absolute;bottom:2rem;right:2rem;display:flex;gap:.8rem;align-items:flex-end}
+    .skill-slot{display:flex;flex-direction:column;align-items:center;gap:4px}
+    .skill-icon{width:60px;height:60px;background:var(--panel);border:1px solid var(--border);border-radius:3px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+    .skill-fill{position:absolute;bottom:0;left:0;right:0;background:rgba(0,245,212,.18);transition:height .1s linear}
+    .skill-emoji{font-size:1.6rem;position:relative;z-index:1}
+    .skill-cd{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:.65rem;color:var(--neon);z-index:2;background:rgba(8,12,20,.7);opacity:0;transition:opacity .2s}
+    .skill-cd.active{opacity:1}
+    .skill-key{font-family:var(--font-mono);font-size:.6rem;color:rgba(200,216,232,.4);letter-spacing:.1em}
+    #skill-name-1,#skill-name-2{font-size:.6rem;letter-spacing:.05em;color:rgba(200,216,232,.4);max-width:70px;text-align:center;line-height:1.3}
+    .skill-slot.ultimate .skill-icon{width:72px;height:72px;border-color:rgba(255,107,53,.4)}
+    .skill-slot.ultimate .skill-fill{background:rgba(255,107,53,.18)}
+    #stats-panel{position:absolute;top:1.5rem;left:50%;transform:translateX(-50%);display:flex;gap:2rem}
+    .stat-block{display:flex;flex-direction:column;align-items:center;background:var(--panel);border:1px solid var(--border);padding:.5rem 1.2rem;border-radius:2px}
+    .stat-val{font-family:var(--font-mono);font-size:1.4rem;color:var(--neon);line-height:1}
+    .stat-lbl{font-size:.6rem;letter-spacing:.15em;color:rgba(200,216,232,.4);margin-top:2px}
+    #weapon-panel{position:absolute;bottom:6rem;right:2rem;text-align:right}
+    #weapon-name{font-size:.75rem;letter-spacing:.1em;color:rgba(200,216,232,.4)}
+    #wave-announce{position:absolute;top:35%;left:50%;transform:translate(-50%,-50%);font-size:2rem;font-weight:700;letter-spacing:.25em;color:var(--neon2);text-shadow:0 0 30px var(--neon2);text-align:center;pointer-events:none;opacity:0;transition:opacity .5s ease}
+    #message{position:absolute;top:5rem;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:.78rem;letter-spacing:.12em;color:var(--neon);background:rgba(0,245,212,.07);border:1px solid rgba(0,245,212,.2);padding:.5rem 1.5rem;border-radius:2px;opacity:0;transition:opacity .3s ease;text-align:center;max-width:440px;pointer-events:none}
+
+    /* No-clip badge */
+    #noclip-badge{position:absolute;top:1.5rem;left:2rem;font-family:var(--font-mono);font-size:.7rem;letter-spacing:.15em;color:#ff6b35;background:rgba(255,107,53,.12);border:1px solid rgba(255,107,53,.4);padding:.3rem .8rem;border-radius:2px;display:none;animation:noclipBlink 1s ease-in-out infinite}
+    @keyframes noclipBlink{0%,100%{opacity:1}50%{opacity:.5}}
+    #godmode-badge{position:absolute;top:1.5rem;left:2rem;margin-top:2.2rem;font-family:var(--font-mono);font-size:.7rem;letter-spacing:.15em;color:#ffbe0b;background:rgba(255,190,11,.12);border:1px solid rgba(255,190,11,.4);padding:.3rem .8rem;border-radius:2px;display:none}
+
+    /* ─── DEV TOGGLE BUTTON ─── */
+    #dev-toggle{
+      position:fixed;top:1rem;right:1rem;z-index:200;
+      font-family:var(--font-mono);font-size:.7rem;letter-spacing:.1em;
+      padding:.35rem .9rem;background:rgba(0,245,212,.08);
+      border:1px solid rgba(0,245,212,.3);border-radius:2px;
+      color:var(--neon);cursor:pointer;pointer-events:all;
+      transition:background .15s,box-shadow .15s;
+    }
+    #dev-toggle:hover{background:rgba(0,245,212,.16);box-shadow:0 0 12px rgba(0,245,212,.2)}
+    #dev-toggle.active{background:rgba(0,245,212,.2);box-shadow:0 0 16px rgba(0,245,212,.3);border-color:var(--neon)}
+
+    /* ─── DEV PANEL ─── */
+    #dev-panel{
+      position:fixed;top:3.5rem;right:1rem;z-index:199;
+      width:340px;max-height:calc(100vh - 5rem);
+      background:var(--dev-bg);border:1px solid var(--dev-border);
+      border-radius:4px;overflow:hidden;display:none;
+      flex-direction:column;
+      box-shadow:0 8px 40px rgba(0,0,0,.6),0 0 0 1px rgba(0,245,212,.08);
+      font-family:var(--font-mono);font-size:.72rem;
+      pointer-events:all;
+    }
+    #dev-panel.visible{display:flex}
+
+    /* Header / drag */
+    .dev-header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:.5rem .75rem;background:rgba(0,245,212,.06);
+      border-bottom:1px solid var(--dev-border);cursor:grab;user-select:none;
+      flex-shrink:0;
+    }
+    .dev-header:active{cursor:grabbing}
+    .dev-title{font-size:.75rem;letter-spacing:.15em;color:var(--neon);font-weight:600}
+    .dev-badge{font-size:.55rem;letter-spacing:.1em;padding:.15rem .4rem;background:rgba(255,107,53,.2);border:1px solid rgba(255,107,53,.4);border-radius:2px;color:#ff6b35}
+
+    /* Live readout strip */
+    .dev-readout{
+      display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;
+      background:rgba(255,255,255,.04);border-bottom:1px solid var(--dev-border);
+      flex-shrink:0;
+    }
+    .dev-readout-cell{padding:.35rem .5rem;background:var(--dev-bg)}
+    .dev-readout-cell .rl{font-size:.55rem;color:rgba(200,216,232,.35);letter-spacing:.08em;margin-bottom:1px}
+    .dev-readout-cell .rv{font-size:.68rem;color:var(--neon);letter-spacing:.05em}
+
+    /* Tabs */
+    .dev-tabs{display:flex;border-bottom:1px solid var(--dev-border);flex-shrink:0}
+    .dev-tab{
+      flex:1;padding:.45rem .2rem;text-align:center;cursor:pointer;
+      font-size:.62rem;letter-spacing:.1em;color:rgba(200,216,232,.4);
+      border-bottom:2px solid transparent;transition:color .15s,border-color .15s;
+      text-transform:uppercase;
+    }
+    .dev-tab:hover{color:rgba(200,216,232,.7)}
+    .dev-tab.active{color:var(--neon);border-bottom-color:var(--neon)}
+
+    /* Tab content */
+    .dev-content{overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(0,245,212,.2) transparent}
+    .dev-content::-webkit-scrollbar{width:4px}
+    .dev-content::-webkit-scrollbar-thumb{background:rgba(0,245,212,.2);border-radius:2px}
+    .dev-pane{display:none;padding:.5rem 0}
+    .dev-pane.active{display:block}
+
+    /* Section header */
+    .dev-section{
+      font-size:.6rem;letter-spacing:.18em;color:rgba(200,216,232,.3);
+      padding:.5rem .75rem .25rem;text-transform:uppercase;
+    }
+
+    /* Row */
+    .dev-row{
+      display:grid;grid-template-columns:110px 1fr 44px;align-items:center;
+      gap:.4rem;padding:.3rem .75rem;
+      background:var(--dev-row);border-bottom:1px solid rgba(255,255,255,.03);
+      transition:background .1s;
+    }
+    .dev-row:hover{background:var(--dev-row-h)}
+    .dev-row label{font-size:.68rem;color:rgba(200,216,232,.65);letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dev-row .val{font-size:.68rem;color:var(--neon);text-align:right;min-width:44px}
+
+    /* Slider */
+    .dev-slider{
+      width:100%;height:3px;-webkit-appearance:none;appearance:none;
+      background:rgba(255,255,255,.1);border-radius:2px;outline:none;cursor:pointer;
+    }
+    .dev-slider::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--neon);cursor:pointer;box-shadow:0 0 6px var(--neon)}
+    .dev-slider::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--neon);cursor:pointer;border:none;box-shadow:0 0 6px var(--neon)}
+
+    /* Toggle switch */
+    .dev-toggle-wrap{display:flex;align-items:center;gap:.5rem}
+    .dev-switch{position:relative;width:34px;height:18px;flex-shrink:0}
+    .dev-switch input{opacity:0;width:0;height:0;position:absolute}
+    .dev-switch-track{position:absolute;inset:0;background:rgba(255,255,255,.1);border-radius:9px;cursor:pointer;transition:background .2s}
+    .dev-switch input:checked+.dev-switch-track{background:rgba(0,245,212,.4)}
+    .dev-switch-track::after{content:'';position:absolute;width:12px;height:12px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform .2s}
+    .dev-switch input:checked+.dev-switch-track::after{transform:translateX(16px);background:var(--neon)}
+
+    /* Toggle row */
+    .dev-row-toggle{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:.4rem .75rem;background:var(--dev-row);border-bottom:1px solid rgba(255,255,255,.03);
+      transition:background .1s;
+    }
+    .dev-row-toggle:hover{background:var(--dev-row-h)}
+    .dev-row-toggle label{font-size:.68rem;color:rgba(200,216,232,.65);letter-spacing:.04em}
+    .dev-row-toggle .toggle-desc{font-size:.58rem;color:rgba(200,216,232,.3);margin-top:1px}
+
+    /* Button */
+    .dev-btn{
+      display:block;width:calc(100% - 1.5rem);margin:.3rem .75rem;
+      padding:.4rem;font-family:var(--font-mono);font-size:.65rem;letter-spacing:.12em;
+      text-align:center;text-transform:uppercase;cursor:pointer;border-radius:2px;
+      border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);
+      color:rgba(200,216,232,.6);transition:background .15s,border-color .15s,color .15s;
+    }
+    .dev-btn:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff}
+    .dev-btn.danger{border-color:rgba(255,34,68,.3);color:rgba(255,34,68,.7)}
+    .dev-btn.danger:hover{background:rgba(255,34,68,.12);border-color:rgba(255,34,68,.6);color:#ff2244}
+    .dev-btn.accent{border-color:rgba(0,245,212,.3);color:var(--neon)}
+    .dev-btn.accent:hover{background:rgba(0,245,212,.1);border-color:var(--neon)}
+    .dev-btn.warn{border-color:rgba(255,190,11,.3);color:var(--warn)}
+    .dev-btn.warn:hover{background:rgba(255,190,11,.08);border-color:var(--warn)}
+
+    /* Animation clips list */
+    .anim-clip{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:.35rem .75rem;border-bottom:1px solid rgba(255,255,255,.03);
+      background:var(--dev-row);transition:background .1s;
+    }
+    .anim-clip:hover{background:var(--dev-row-h)}
+    .anim-clip.playing{background:rgba(0,245,212,.07);border-left:2px solid var(--neon)}
+    .anim-clip-name{font-size:.68rem;color:rgba(200,216,232,.7);letter-spacing:.06em}
+    .anim-clip-key{font-size:.58rem;color:rgba(200,216,232,.3)}
+    .anim-play-btn{
+      font-size:.58rem;letter-spacing:.1em;padding:.2rem .5rem;
+      border:1px solid rgba(0,245,212,.25);border-radius:2px;
+      background:rgba(0,245,212,.05);color:var(--neon);cursor:pointer;
+      transition:background .1s,border-color .1s;font-family:var(--font-mono);
+    }
+    .anim-play-btn:hover{background:rgba(0,245,212,.12);border-color:var(--neon)}
+    .anim-play-btn.active{background:rgba(0,245,212,.2);border-color:var(--neon);color:#fff}
+    .anim-no-clips{padding:1rem .75rem;font-size:.65rem;color:rgba(200,216,232,.3);text-align:center;letter-spacing:.08em}
+
+    /* ─── GAME OVER ─── */
+    #game-over{position:fixed;inset:0;z-index:95;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(4,8,15,.95)}
+    .go-title{font-size:4rem;font-weight:700;letter-spacing:.2em;color:var(--danger);text-shadow:0 0 40px var(--danger);margin-bottom:.5rem}
+    .go-sub{font-family:var(--font-mono);font-size:.8rem;color:rgba(200,216,232,.4);letter-spacing:.2em;margin-bottom:2rem}
+    #final-score{font-family:var(--font-mono);font-size:1rem;color:var(--neon);margin-bottom:3rem;letter-spacing:.1em}
+    #restart-btn{padding:.7rem 2.8rem;font-family:var(--font-ui);font-size:.9rem;font-weight:700;letter-spacing:.2em;color:var(--bg);background:var(--danger);border:none;border-radius:2px;cursor:pointer;text-transform:uppercase;pointer-events:all;transition:box-shadow .2s,transform .15s}
+    #restart-btn:hover{box-shadow:0 0 30px rgba(255,34,68,.5);transform:scale(1.03)}
+
+    body::after{content:'';position:fixed;inset:0;z-index:200;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px)}
+  </style>
 </head>
 <body>
+  <canvas id="game-canvas"></canvas>
 
-<!-- ═══ MAIN MENU ═══════════════════════════════════════ -->
-<div id="main-menu">
-    <div class="menu-scanlines"></div>
-    <div class="menu-logo">
-        <div class="logo-ring"></div>
-        <h1 class="logo-title">BRAWL</h1>
-        <p class="logo-sub">3RD PERSON ROYALE RUMBLE</p>
-        <div class="logo-divider"></div>
+  <!-- LOADING -->
+  <div id="loading-screen">
+    <div class="load-logo">ACTION ARENA</div>
+    <div class="load-sub">⚠ DEV BUILD ⚠</div>
+    <div class="load-bar-wrap"><div id="load-bar"></div></div>
+    <div id="load-text">INITIALIZING ENGINE...</div>
+  </div>
+
+  <!-- CHAR SELECT -->
+  <div id="char-select">
+    <div class="select-title">SELECT OPERATIVE</div>
+    <div class="select-sub">DEV MODE — BACKTICK ` TO OPEN TUNER</div>
+    <div id="char-select-grid"></div>
+    <button id="start-btn">DEPLOY →</button>
+    <div class="controls-hint">
+      <strong>WASD</strong> Move &nbsp;|&nbsp; <strong>MOUSE</strong> Aim &nbsp;|&nbsp;
+      <strong>LMB/F</strong> Shoot &nbsp;|&nbsp; <strong>SPACE</strong> Jump &nbsp;|&nbsp;
+      <strong>SHIFT</strong> Sprint &nbsp;|&nbsp; <strong>[E]</strong> Skill &nbsp;|&nbsp;
+      <strong>[Q]</strong> Ultimate &nbsp;|&nbsp;
+      <strong>`</strong> Dev Panel &nbsp;|&nbsp; <strong>CLICK</strong> Lock Cursor
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="crosshair"></div>
+
+    <!-- Badges -->
+    <div id="noclip-badge">◈ NO CLIP ACTIVE &nbsp;[SPACE=UP · CTRL=DOWN]</div>
+    <div id="godmode-badge">★ GOD MODE ACTIVE</div>
+
+    <div id="health-panel">
+      <div class="health-header">
+        <span class="health-label">HEALTH</span>
+        <span id="health-text">100 / 100</span>
+      </div>
+      <div class="health-bar-bg"><div id="health-fill" style="width:100%"></div></div>
+      <div id="char-name">OPERATIVE</div>
     </div>
 
-    <div id="menu-lobby" class="menu-panel">
-        <button id="btn-dev-mode" class="menu-btn">
-            <span class="btn-icon">⚙</span> DEV MODE
-            <small>AI enemy · weapon tuner · noclip</small>
-        </button>
-        <button id="btn-pvp-mode" class="menu-btn pvp">
-            <span class="btn-icon">⚡</span> PVP MODE
-            <small>Multiplayer · WebSocket</small>
-        </button>
-        <p class="menu-hint">Map: battle_guys.glb</p>
+    <div id="skills-panel">
+      <div class="skill-slot">
+        <div id="skill-name-1">Primary</div>
+        <div class="skill-icon">
+          <div class="skill-fill" id="primary-fill" style="height:100%"></div>
+          <span class="skill-emoji" id="primary-emoji">⚡</span>
+          <div class="skill-cd" id="primary-cd">READY</div>
+        </div>
+        <div class="skill-key">[E]</div>
+      </div>
+      <div class="skill-slot ultimate">
+        <div id="skill-name-2">Ultimate</div>
+        <div class="skill-icon">
+          <div class="skill-fill" id="ultimate-fill" style="height:100%"></div>
+          <span class="skill-emoji" id="ultimate-emoji">☢</span>
+          <div class="skill-cd" id="ultimate-cd">READY</div>
+        </div>
+        <div class="skill-key">[Q]</div>
+      </div>
     </div>
 
-    <div id="menu-char-select" class="menu-panel char-select-panel" style="display:none">
-        <h2 class="panel-title">SELECT OPERATIVE</h2>
-        <p class="menu-hint" style="margin-bottom:12px;">Choose your unit for this deployment</p>
-        <div id="char-card-grid"></div>
-        <div id="char-detail">
-            <div id="char-detail-name">—</div>
-            <div id="char-detail-sub">—</div>
-            <p id="char-detail-desc"></p>
-            <div id="char-stats">
-                <div class="stat-row"><span class="stat-label">SPD</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-speed"></div></div><span class="stat-val" id="stat-speed-val">—</span></div>
-                <div class="stat-row"><span class="stat-label">DMG</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-damage"></div></div><span class="stat-val" id="stat-damage-val">—</span></div>
-                <div class="stat-row"><span class="stat-label">ARM</span><div class="stat-bar-bg"><div class="stat-bar-fill" id="stat-armor"></div></div><span class="stat-val" id="stat-armor-val">—</span></div>
-            </div>
-        </div>
-        <div class="pvp-btn-row" style="margin-top:16px;">
-            <button id="btn-char-back" class="menu-btn small">← BACK</button>
-            <button id="btn-char-confirm" class="menu-btn small" disabled>CONFIRM ▶</button>
-        </div>
+    <div id="stats-panel">
+      <div class="stat-block"><div class="stat-val" id="wave-num">1</div><div class="stat-lbl">WAVE</div></div>
+      <div class="stat-block"><div class="stat-val" id="kill-count">0</div><div class="stat-lbl">KILLS</div></div>
+      <div class="stat-block"><div class="stat-val" id="enemy-count">0</div><div class="stat-lbl">ENEMIES</div></div>
     </div>
 
-    <div id="menu-pvp" class="menu-panel" style="display:none">
-        <h2 class="panel-title">PVP LOBBY</h2>
-        <label class="field-label">Server URL</label>
-        <input id="pvp-server-url" class="menu-input" type="text" value="https://decade-away-postposted-charitable.trycloudflare.com">
-        <label class="field-label">Callsign</label>
-        <input id="pvp-name" class="menu-input" type="text" value="SPARTAN" maxlength="16">
-        <div class="pvp-btn-row">
-            <button id="btn-pvp-back" class="menu-btn small">← BACK</button>
-            <button id="btn-pvp-connect" class="menu-btn small pvp">CONNECT &amp; PLAY</button>
-        </div>
-    </div>
-</div>
+    <div id="weapon-panel"><div id="weapon-name">—</div></div>
+    <div id="wave-announce"></div>
+    <div id="message"></div>
+  </div>
 
-<!-- ═══ CONNECTING ═══════════════════════════════════════ -->
-<div id="connecting-overlay" style="display:none">
-    <div class="spinner"></div>
-    <p id="connecting-msg">Connecting…</p>
-</div>
+  <!-- DEV TOGGLE BUTTON -->
+  <button id="dev-toggle">⚙ DEV</button>
 
-<!-- ═══ IN-GAME UI LAYER ══════════════════════════════════ -->
-<div id="ui-layer" style="display:none">
-
-    <!-- ─── DEV HUD ─────────────────────────────────────── -->
-    <div id="dev-hud" style="display:none">
-        <div id="hud">
-            <h2>COMBAT OS · DEV</h2>
-            <p>W/A/S/D: Move | SHIFT: Sprint | SPACE: Jump<br>
-               MOUSE: Aim | LMB: Attack | RMB: Block (melee)<br>
-               1/2: Swap Weapon | Q/E/R: Ultimates | V: Noclip | TAB: Scores</p>
-            <div id="weapon-display-dev" class="weapon-display">
-                <div id="ui-wep-gun"   class="wep-slot active"><span class="wep-key">[1]</span> BLASTER RIFLE</div>
-                <div id="ui-wep-melee" class="wep-slot"><span class="wep-key">[2]</span> LIGHTSABER</div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;pointer-events:all;">
-                <button id="toggle-ai-btn"     style="padding:6px 12px;background:#ffaa00;color:black;border:none;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">AI: ON</button>
-                <button id="toggle-hitbox-btn" style="padding:6px 12px;background:#444;color:white;border:1px solid #666;font-family:'Courier New';font-size:11px;letter-spacing:2px;cursor:pointer;">View Hitbox</button>
-            </div>
-            <div id="target-info" style="position:absolute;top:20px;right:20px;color:#ff3333;text-align:right;text-shadow:0 0 5px #ff3333;">
-                <h2>TARGET INTEGRITY</h2>
-                <div class="bar-bg"><div id="enemy-health-bar" class="bar-fill" style="background:#ff3333;"></div></div>
-            </div>
-        </div>
+  <!-- DEV PANEL -->
+  <div id="dev-panel">
+    <!-- Header (draggable) -->
+    <div class="dev-header" id="dev-drag-handle">
+      <span class="dev-title">⚙ TUNER</span>
+      <span class="dev-badge">DEV MODE</span>
     </div>
 
-    <!-- ─── PVP HUD ─────────────────────────────────────── -->
-    <div id="pvp-hud" style="display:none">
-
-        <!-- Top-left: session info -->
-        <div id="pvp-status-bar">
-            <div id="pvp-session-id">ID: —</div>
-            <div id="pvp-online-badge">
-                <div class="online-dot"></div>
-                <span id="pvp-count">1 ONLINE</span>
-            </div>
-        </div>
-
-        <!-- Top-centre: mini controls legend -->
-        <div id="pvp-controls-legend">
-            <span class="ctrl-hint"><span>WASD</span> MOVE</span>
-            <span class="ctrl-hint"><span>SHIFT</span> SPRINT</span>
-            <span class="ctrl-hint"><span>SPC</span> JUMP</span>
-            <span class="ctrl-hint"><span>LMB</span> ATTACK</span>
-            <span class="ctrl-hint"><span>RMB</span> BLOCK</span>
-            <span class="ctrl-hint"><span>1/2</span> SWAP</span>
-            <span class="ctrl-hint"><span>TAB</span> SCORES</span>
-        </div>
-
-        <!-- Bottom-left: weapon selector cards -->
-        <div id="pvp-weapon-bar">
-            <div id="pvp-wep-gun" class="pvp-wep-card active">
-                <span class="wep-key-badge">[1]</span>
-                BLASTER
-            </div>
-            <div id="pvp-wep-melee" class="pvp-wep-card">
-                <span class="wep-key-badge">[2]</span>
-                SABER
-            </div>
-        </div>
-
-        <!-- Bottom-right: health panel -->
-        <div id="pvp-health-panel">
-            <div class="health-label">SYSTEM INTEGRITY</div>
-            <div id="pvp-health-value">100</div>
-            <div class="health-bar-row">
-                <div id="pvp-health-bar-track">
-                    <div id="pvp-health-bar-fill"></div>
-                </div>
-            </div>
-        </div>
-
-    </div><!-- end #pvp-hud -->
-
-    <!-- ─── KILL FEED ──────────────────────────────────── -->
-    <!-- NOTE: shown in both dev+pvp modes, positioned top-right.
-         In dev mode the enemy-health bar is in the hud itself. -->
-    <div id="kill-feed"></div>
-
-    <!-- ─── SHARED HUD ELEMENTS ───────────────────────── -->
-    <div id="noclip-alert">NOCLIP (FREE CAM) ACTIVE</div>
-
-    <!-- Dev / fallback health bar (shown in dev mode only) -->
-    <div id="player-info" style="position:absolute;bottom:20px;right:20px;color:#00ffcc;text-align:right;text-shadow:0 0 5px #00ffcc;display:none;">
-        <h2>SYSTEM INTEGRITY</h2>
-        <div class="bar-bg"><div id="player-health-bar" class="bar-fill" style="background:#00ffcc;"></div></div>
+    <!-- Live readout -->
+    <div class="dev-readout">
+      <div class="dev-readout-cell"><div class="rl">FPS</div><div class="rv" id="dr-fps">—</div></div>
+      <div class="dev-readout-cell"><div class="rl">POSITION</div><div class="rv" id="dr-pos">—</div></div>
+      <div class="dev-readout-cell"><div class="rl">STATE</div><div class="rv" id="dr-state">—</div></div>
     </div>
 
-    <div id="crosshair">+</div>
-    <div id="lock-hint">Click to lock mouse &amp; start</div>
-    <div id="net-alert"></div>
-    <div id="loading-status"></div>
-
-    <!-- ─── DAMAGE / EFFECTS ───────────────────────────── -->
-    <div id="hit-flash"></div>
-    <div id="block-flash"></div>
-    <div id="damage-indicators"></div>
-    <div id="damage-numbers"></div>
-
-    <!-- ─── BLOCK SHIELD INDICATOR ────────────────────── -->
-    <div id="block-indicator">
-        <div class="block-shield-icon">🛡</div>
-        <div class="block-text">BLOCKING</div>
-        <div class="block-hint">RMB · MELEE MODE</div>
+    <!-- Tabs -->
+    <div class="dev-tabs">
+      <div class="dev-tab active" data-tab="character">CHARACTER</div>
+      <div class="dev-tab" data-tab="physics">PHYSICS</div>
+      <div class="dev-tab" data-tab="combat">COMBAT</div>
+      <div class="dev-tab" data-tab="animations">ANIMS</div>
     </div>
 
-    <!-- ─── DEATH / RESPAWN SCREEN ────────────────────── -->
-    <div id="death-screen" style="display:none">
-        <div class="death-scanlines"></div>
-        <div class="death-content">
-            <div class="death-hex-ring"></div>
-            <h1 class="death-title" data-text="TERMINATED">TERMINATED</h1>
-            <p class="death-sub">SYSTEM INTEGRITY: <span class="death-zero">0%</span></p>
-            <p class="death-cause" id="respawn-killer">TERMINATED BY AI</p>
-            <div class="respawn-row">
-                <span class="respawn-label">RESPAWNING IN</span>
-                <span class="respawn-num" id="respawn-countdown">3</span>
-            </div>
-            <div class="respawn-track">
-                <div class="respawn-track-fill" id="respawn-progress"></div>
-                <div class="respawn-track-glow"></div>
-            </div>
-        </div>
-    </div>
+    <!-- Tab content -->
+    <div class="dev-content">
 
-    <!-- ═══════════════════════════════════════════════════
-         DEV TUNER (unchanged — kept full)
-    ═══════════════════════════════════════════════════ -->
-    <div id="dev-tuner" style="display:none;position:fixed;top:0;right:0;width:310px;max-height:100vh;overflow-y:auto;background:#111;border-left:1px solid #333;padding:10px;font-size:12px;color:#ccc;z-index:999;pointer-events:all;">
-        <div style="color:#00ffcc;font-weight:bold;letter-spacing:3px;margin-bottom:8px;">
-            DEV TUNER
-            <span id="tuner-model-label" style="color:#ffaa00;font-size:10px;margin-left:8px;"></span>
+      <!-- ── CHARACTER TAB ── -->
+      <div class="dev-pane active" id="tab-character">
+        <div class="dev-section">Model</div>
+        <div class="dev-row">
+          <label>Scale</label>
+          <input class="dev-slider" type="range" id="d-scale" min="0.1" max="4" step="0.05" value="1"/>
+          <span class="val" id="d-scale-v">1.00</span>
         </div>
 
-        <!-- Tab buttons -->
-        <div style="display:flex;gap:6px;margin-bottom:10px;">
-            <button id="tab-btn-weapon"  onclick="switchTunerTab('weapon')"  style="flex:1;padding:4px;background:#ffaa00;color:black;border:none;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">WEAPON</button>
-            <button id="tab-btn-melee"   onclick="switchTunerTab('melee')"   style="flex:1;padding:4px;background:#333;color:#aaa;border:1px solid #555;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">MELEE</button>
-            <button id="tab-btn-physics" onclick="switchTunerTab('physics')" style="flex:1;padding:4px;background:#333;color:#aaa;border:1px solid #555;font-family:'Courier New';font-size:10px;letter-spacing:1px;cursor:pointer;">PHYSICS</button>
+        <div class="dev-section">Camera (DEV)</div>
+        <div class="dev-row">
+          <label>Shoulder X</label>
+          <input class="dev-slider" type="range" id="d-camx" min="-2" max="2" step="0.01" value="0.7"/>
+          <span class="val" id="d-camx-v">0.70</span>
+        </div>
+        <div class="dev-row">
+          <label>Height Y</label>
+          <input class="dev-slider" type="range" id="d-camy" min="0" max="4" step="0.01" value="1.6"/>
+          <span class="val" id="d-camy-v">1.60</span>
+        </div>
+        <div class="dev-row">
+          <label>Distance Z</label>
+          <input class="dev-slider" type="range" id="d-camz" min="2" max="12" step="0.01" value="5.5"/>
+          <span class="val" id="d-camz-v">5.50</span>
+        </div>
+        <div class="dev-row">
+          <label>Pivot Y</label>
+          <input class="dev-slider" type="range" id="d-campivot" min="0.5" max="2.5" step="0.01" value="1.6"/>
+          <span class="val" id="d-campivot-v">1.60</span>
         </div>
 
-        <!-- WEAPON TAB -->
-        <div id="tuner-tab-weapon">
-            <div style="color:#0ff;margin-bottom:5px;">Weapon Transform</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Scale</span><input type="range" id="tune-scale" min="0.01" max="5" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-scale-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Position (X / Y / Z)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos X</span><input type="range" id="tune-px" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-px-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos Y</span><input type="range" id="tune-py" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-py-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pos Z</span><input type="range" id="tune-pz" min="-10" max="10" step="0.01" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-pz-num" step="0.01" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Rotation (X / Y / Z)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot X</span><input type="range" id="tune-rx" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-rx-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot Y</span><input type="range" id="tune-ry" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-ry-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Rot Z</span><input type="range" id="tune-rz" min="-3.2" max="3.2" step="0.001" style="flex:1;margin:0 8px;accent-color:#00ffcc;"><input type="number" id="tune-rz-num" step="0.001" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-            </div>
-            <div id="tune-bullet-section">
-                <div style="color:#0ff;margin-bottom:5px;">Bullet Spawn</div>
-                <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="tune-bx" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bx-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="tune-by" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-by-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Z</span><input type="range" id="tune-bz" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bz-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Fallback H</span><input type="range" id="tune-bh" min="0" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-bh-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">From Barrel</span><input type="checkbox" id="tune-gs-fromBarrel" checked style="margin:0 8px;"><label id="tune-gs-fromBarrel-label" style="color:#ffaa00;font-size:11px;">ON</label></div>
-                    <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Gun Spawn Override (X / Y / Z)</div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn X</span><input type="range" id="tune-gs-x" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-x-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn Y</span><input type="range" id="tune-gs-y" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-y-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                    <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Spawn Z</span><input type="range" id="tune-gs-z" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;accent-color:#ffaa00;"><input type="number" id="tune-gs-z-num" step="0.1" style="width:60px;background:#222;color:#ffaa00;border:1px solid #555;"></div>
-                </div>
-            </div>
-            <div style="color:#0ff;margin-bottom:5px;">Swing Address (melee only)</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 0 (upper_arm_R)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s0x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s0y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s0z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s0z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 1 (lower_arm_R)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s1x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s1y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s1z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s1z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;">Bone 2 (hand_R)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">X</span><input type="range" id="tune-s2x" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2x-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Y</span><input type="range" id="tune-s2y" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2y-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Z</span><input type="range" id="tune-s2z" min="-3.2" max="3.2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="tune-s2z-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-            </div>
+        <div class="dev-section">Movement</div>
+        <div class="dev-row">
+          <label>Speed</label>
+          <input class="dev-slider" type="range" id="d-speed" min="1" max="30" step="0.5" value="5"/>
+          <span class="val" id="d-speed-v">5.0</span>
+        </div>
+        <div class="dev-row">
+          <label>Sprint Mult</label>
+          <input class="dev-slider" type="range" id="d-sprint" min="1" max="5" step="0.1" value="1.85"/>
+          <span class="val" id="d-sprint-v">1.85×</span>
         </div>
 
-        <!-- MELEE TAB -->
-        <div id="tuner-tab-melee" style="display:none;">
-            <div style="color:#0ff;margin-bottom:5px;">Melee Stats</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Damage</span><input type="range" id="mt-damage" min="1" max="200" step="1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-damage-num" step="1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Range</span><input type="range" id="mt-range" min="1" max="100" step="0.5" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-range-num" step="0.5" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Fire Rate</span><input type="range" id="mt-fireRate" min="0.05" max="2" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-fireRate-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-            </div>
-            <div style="color:#0ff;margin-bottom:5px;">Damage Box</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Offset (X / Y / Z)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off X</span><input type="range" id="mt-dbOffX" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffX-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off Y</span><input type="range" id="mt-dbOffY" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffY-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Off Z</span><input type="range" id="mt-dbOffZ" min="-50" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbOffZ-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Size (X / Y / Z)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size X</span><input type="range" id="mt-dbSzX" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzX-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Y</span><input type="range" id="mt-dbSzY" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzY-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Z</span><input type="range" id="mt-dbSzZ" min="0.1" max="50" step="0.1" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbSzZ-num" step="0.1" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Hit Window (0–1)</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Window Start</span><input type="range" id="mt-dbWinStart" min="0" max="1" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbWinStart-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Window End</span><input type="range" id="mt-dbWinEnd" min="0" max="1" step="0.01" style="flex:1;margin:0 8px;accent-color:#ff6600;"><input type="number" id="mt-dbWinEnd-num" step="0.01" style="width:60px;background:#222;color:#ff6600;border:1px solid #555;"></div>
-            </div>
+        <div class="dev-section">Jump</div>
+        <div class="dev-row">
+          <label>Jump Force</label>
+          <input class="dev-slider" type="range" id="d-jump" min="1" max="40" step="0.5" value="8"/>
+          <span class="val" id="d-jump-v">8.0</span>
         </div>
 
-        <!-- PHYSICS TAB -->
-        <div id="tuner-tab-physics" style="display:none;">
-            <div style="color:#0ff;margin-bottom:5px;">Movement</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Walk Speed</span><input type="range" id="phys-walkSpeed" min="1" max="100" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-walkSpeed-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Run Mult</span><input type="range" id="phys-runMultiplier" min="1" max="6" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-runMultiplier-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Rate</span><input type="range" id="phys-stepRate" min="0.1" max="2" step="0.05" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepRate-num" step="0.05" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-            </div>
-            <div style="color:#0ff;margin-bottom:5px;">Jump &amp; Gravity</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Gravity</span><input type="range" id="phys-gravity" min="5" max="500" step="1" style="flex:1;margin:0 8px;"><input type="number" id="phys-gravity-num" step="1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Jump Strength</span><input type="range" id="phys-jumpStrength" min="1" max="200" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-jumpStrength-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Up</span><input type="range" id="phys-stepUp" min="0.1" max="10" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepUp-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Step Down</span><input type="range" id="phys-stepDown" min="0.1" max="30" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-stepDown-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-            </div>
-            <div style="color:#0ff;margin-bottom:5px;">Camera</div>
-            <div class="tuner-group" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #444;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Pivot Y</span><input type="range" id="phys-cameraPivotY" min="0" max="50" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-cameraPivotY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Orbit Offset</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset X</span><input type="range" id="phys-camOffsetX" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetX-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Y</span><input type="range" id="phys-camOffsetY" min="-20" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Offset Z</span><input type="range" id="phys-camOffsetZ" min="0" max="100" step="0.5" style="flex:1;margin:0 8px;"><input type="number" id="phys-camOffsetZ-num" step="0.5" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div style="color:#ffaa00;font-size:10px;margin:4px 0 2px;text-transform:uppercase;">Look Target</div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">LookAt Z</span><input type="range" id="phys-camLookAtZ" min="-500" max="0" step="1" style="flex:1;margin:0 8px;"><input type="number" id="phys-camLookAtZ-num" step="1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-            </div>
-            <div style="color:#0ff;margin-bottom:5px;">Hitbox</div>
-            <div class="tuner-group" style="margin-bottom:10px;">
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Center Y</span><input type="range" id="phys-hitboxCY" min="0" max="30" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxCY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size X</span><input type="range" id="phys-hitboxX" min="0.5" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxX-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Y</span><input type="range" id="phys-hitboxY" min="0.5" max="40" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxY-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-                <div class="tuner-row" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="width:110px;">Size Z</span><input type="range" id="phys-hitboxZ" min="0.5" max="20" step="0.1" style="flex:1;margin:0 8px;"><input type="number" id="phys-hitboxZ-num" step="0.1" style="width:60px;background:#222;color:#00ffcc;border:1px solid #555;"></div>
-            </div>
+        <div class="dev-section">Health</div>
+        <div class="dev-row">
+          <label>Max Health</label>
+          <input class="dev-slider" type="range" id="d-maxhp" min="10" max="9999" step="10" value="100"/>
+          <span class="val" id="d-maxhp-v">100</span>
+        </div>
+        <button class="dev-btn accent" id="d-fullheal">⊕ FULL HEAL</button>
+        <button class="dev-btn danger" id="d-kill-self">⚡ KILL SELF</button>
+      </div>
+
+      <!-- ── PHYSICS TAB ── -->
+      <div class="dev-pane" id="tab-physics">
+        <div class="dev-section">World</div>
+        <div class="dev-row">
+          <label>Gravity</label>
+          <input class="dev-slider" type="range" id="d-gravity" min="-60" max="0" step="1" value="-22"/>
+          <span class="val" id="d-gravity-v">-22</span>
         </div>
 
-        <div id="tuner-code"></div>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('tuner-code').innerText)" style="width:100%;margin-top:6px;padding:5px;background:#222;color:#00ffcc;border:1px solid #00ffcc;font-family:'Courier New';font-size:11px;cursor:pointer;letter-spacing:2px;">📋 COPY</button>
-    </div><!-- end #dev-tuner -->
+        <div class="dev-section">Character Body</div>
+        <div class="dev-row">
+          <label>Mass</label>
+          <input class="dev-slider" type="range" id="d-mass" min="1" max="500" step="5" value="70"/>
+          <span class="val" id="d-mass-v">70</span>
+        </div>
+        <div class="dev-row">
+          <label>Ground Friction</label>
+          <input class="dev-slider" type="range" id="d-friction" min="0" max="0.99" step="0.01" value="0.78"/>
+          <span class="val" id="d-friction-v">0.78</span>
+        </div>
+        <div class="dev-row">
+          <label>Air Control</label>
+          <input class="dev-slider" type="range" id="d-airctrl" min="0" max="1" step="0.05" value="0.3"/>
+          <span class="val" id="d-airctrl-v">0.30</span>
+        </div>
 
-</div><!-- end #ui-layer -->
+        <div class="dev-section">Modes</div>
+        <div class="dev-row-toggle">
+          <div>
+            <label>No Clip</label>
+            <div class="toggle-desc">Fly freely, ignore all collisions</div>
+          </div>
+          <label class="dev-switch">
+            <input type="checkbox" id="d-noclip"/>
+            <span class="dev-switch-track"></span>
+          </label>
+        </div>
+        <div class="dev-row-toggle">
+          <div>
+            <label>God Mode</label>
+            <div class="toggle-desc">Invincible, infinite health</div>
+          </div>
+          <label class="dev-switch">
+            <input type="checkbox" id="d-godmode"/>
+            <span class="dev-switch-track"></span>
+          </label>
+        </div>
 
-<script type="module" src="js/main.js"></script>
+        <div class="dev-section">Teleport</div>
+        <button class="dev-btn" id="d-tp-origin">⊕ Teleport to Origin (0,0,0)</button>
+        <button class="dev-btn" id="d-tp-sky">↑ Teleport to Sky (0,30,0)</button>
+        <button class="dev-btn danger" id="d-kill-enemies">✕ Kill All Enemies</button>
+        <button class="dev-btn warn" id="d-spawn-wave">+ Spawn Wave Now</button>
+      </div>
+
+      <!-- ── COMBAT TAB ── -->
+      <div class="dev-pane" id="tab-combat">
+        <div class="dev-section">Weapon</div>
+        <div class="dev-row">
+          <label>Damage Mult</label>
+          <input class="dev-slider" type="range" id="d-dmg" min="0.1" max="20" step="0.1" value="1"/>
+          <span class="val" id="d-dmg-v">1.0×</span>
+        </div>
+        <div class="dev-row">
+          <label>Fire Rate (s)</label>
+          <input class="dev-slider" type="range" id="d-firerate" min="0.01" max="3" step="0.01" value="0.45"/>
+          <span class="val" id="d-firerate-v">0.45</span>
+        </div>
+        <div class="dev-row">
+          <label>Proj Speed</label>
+          <input class="dev-slider" type="range" id="d-projspd" min="5" max="150" step="1" value="32"/>
+          <span class="val" id="d-projspd-v">32</span>
+        </div>
+        <div class="dev-row">
+          <label>Proj Size</label>
+          <input class="dev-slider" type="range" id="d-projsize" min="0.05" max="2" step="0.05" value="0.11"/>
+          <span class="val" id="d-projsize-v">0.11</span>
+        </div>
+        <div class="dev-row">
+          <label>Range</label>
+          <input class="dev-slider" type="range" id="d-range" min="5" max="200" step="1" value="55"/>
+          <span class="val" id="d-range-v">55</span>
+        </div>
+
+        <div class="dev-row-toggle">
+          <div>
+            <label>Piercing Shots</label>
+            <div class="toggle-desc">Projectiles pass through enemies</div>
+          </div>
+          <label class="dev-switch">
+            <input type="checkbox" id="d-pierce"/>
+            <span class="dev-switch-track"></span>
+          </label>
+        </div>
+
+        <div class="dev-section">Skills</div>
+        <div class="dev-row">
+          <label>Primary CD (s)</label>
+          <input class="dev-slider" type="range" id="d-pcd" min="0" max="60" step="0.5" value="8"/>
+          <span class="val" id="d-pcd-v">8.0</span>
+        </div>
+        <div class="dev-row">
+          <label>Ultimate CD (s)</label>
+          <input class="dev-slider" type="range" id="d-ucd" min="0" max="120" step="1" value="45"/>
+          <span class="val" id="d-ucd-v">45</span>
+        </div>
+        <button class="dev-btn accent" id="d-reset-cds">↺ Reset All Cooldowns</button>
+        <button class="dev-btn warn"   id="d-reset-combat">↺ Reset Combat to Defaults</button>
+      </div>
+
+      <!-- ── ANIMATIONS TAB ── -->
+      <div class="dev-pane" id="tab-animations">
+        <div class="dev-section">Crossfade</div>
+        <div class="dev-row">
+          <label>Blend Time</label>
+          <input class="dev-slider" type="range" id="d-blend" min="0" max="1" step="0.01" value="0.25"/>
+          <span class="val" id="d-blend-v">0.25s</span>
+        </div>
+        <div class="dev-row">
+          <label>Time Scale</label>
+          <input class="dev-slider" type="range" id="d-timescale" min="0.1" max="3" step="0.05" value="1"/>
+          <span class="val" id="d-timescale-v">1.00×</span>
+        </div>
+
+        <div class="dev-section">Loaded Clips</div>
+        <div id="anim-clips-list">
+          <div class="anim-no-clips">No model loaded yet</div>
+        </div>
+
+        <div class="dev-section">Actions</div>
+        <button class="dev-btn" id="d-anim-refresh">↺ Refresh Clip List</button>
+        <button class="dev-btn danger" id="d-anim-stop">■ Stop All Animations</button>
+      </div>
+
+    </div><!-- end dev-content -->
+  </div><!-- end dev-panel -->
+
+  <!-- GAME OVER -->
+  <div id="game-over">
+    <div class="go-title">ELIMINATED</div>
+    <div class="go-sub">MISSION FAILED — OPERATIVE DOWN</div>
+    <div id="final-score">Score: 0</div>
+    <button id="restart-btn">RETRY MISSION</button>
+  </div>
+
+  <script type="module" src="main.js"></script>
 </body>
 </html>

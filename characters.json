@@ -1,0 +1,170 @@
+[
+  {
+    "id": "walter_white",
+    "name": "Walter White",
+    "modelUrl": "/assets/walterwhite.fbx",
+    "scale": 1,
+    "color": "#e0e0e0",
+    "stats": { "speed": 5, "maxHealth": 100, "mass": 70, "jumpForce": 8 },
+    "animationUrls": {
+      "idle":   "/assets/anims/dance_1.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/punching.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "Walther PPK",
+      "damage": 28, "fireRate": 0.45, "range": 55,
+      "projectileSpeed": 32, "projectileColor": "#ffee00", "projectileSize": 0.11
+    },
+    "skills": {
+      "primary":  { "name": "Blue Sky Boost", "key": "e", "cooldown": 8 },
+      "ultimate": { "name": "Summon Jesse",   "key": "q", "cooldown": 45 }
+    },
+    "camera": {
+      "camOffset": { "x": 0.52, "y": 1.65, "z": 3.43 },
+      "cameraPivotY": 1.03
+    }
+  },
+  {
+    "id": "t800",
+    "name": "T-800 Terminator",
+    "modelUrl": "/assets/t800.fbx",
+    "scale": 0.02,
+    "color": "#282828",
+    "stats": { "speed": 3.5, "maxHealth": 350, "mass": 180, "jumpForce": 7 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/rifle_aiming.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "M134 Minigun",
+      "damage": 14, "fireRate": 0.08, "range": 85,
+      "projectileSpeed": 55, "projectileColor": "#ff3300", "projectileSize": 0.07
+    },
+    "skills": {
+      "primary":  { "name": "Plasma Shot",    "key": "e", "cooldown": 5  },
+      "ultimate": { "name": "Nuclear Option", "key": "q", "cooldown": 60 }
+    },
+    "camera": {
+      "camOffset": { "x": 0.7, "y": 1.6, "z": 5.5 },
+      "cameraPivotY": 1.6
+    }
+  },
+  {
+    "id": "mando",
+    "name": "The Mandalorian",
+    "modelUrl": "/assets/mando.glb",
+    "scale": 1.0,
+    "color": "#788da0",
+    "stats": { "speed": 6, "maxHealth": 175, "mass": 85, "jumpForce": 11 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/punching.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "IB-94 Blaster",
+      "damage": 22, "fireRate": 0.28, "range": 65,
+      "projectileSpeed": 42, "projectileColor": "#00eeff", "projectileSize": 0.09
+    },
+    "skills": {
+      "primary":  { "name": "Jetpack Dash",    "key": "e", "cooldown": 6  },
+      "ultimate": { "name": "Whistling Birds", "key": "q", "cooldown": 30 }
+    }
+  },
+  {
+    "id": "enemy_grunt",
+    "name": "Combat Grunt",
+    "isEnemy": true,
+    "modelUrl": "/assets/enemy_grunt.glb",
+    "scale": 0.95,
+    "color": "#6b1111",
+    "stats": { "speed": 3.2, "maxHealth": 60, "mass": 70, "jumpForce": 7 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/punching.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "Assault Rifle",
+      "damage": 11, "fireRate": 0.9, "range": 28,
+      "projectileSpeed": 26, "projectileColor": "#ff0000", "projectileSize": 0.1
+    },
+    "skills": {}
+  },
+  {
+    "id": "enemy_heavy",
+    "name": "Heavy Trooper",
+    "isEnemy": true,
+    "modelUrl": "/assets/enemy_heavy.glb",
+    "scale": 1.2,
+    "color": "#3a0000",
+    "stats": { "speed": 2.2, "maxHealth": 160, "mass": 130, "jumpForce": 6 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/punching.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "Heavy Cannon",
+      "damage": 28, "fireRate": 1.2, "range": 22,
+      "projectileSpeed": 20, "projectileColor": "#ff6600", "projectileSize": 0.16
+    },
+    "skills": {}
+  },
+  {
+    "id": "enemy_sniper",
+    "name": "Sniper",
+    "isEnemy": true,
+    "modelUrl": "/assets/enemy_sniper.glb",
+    "scale": 0.98,
+    "color": "#1a3a1a",
+    "stats": { "speed": 2.5, "maxHealth": 45, "mass": 65, "jumpForce": 7.5 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/rifle_aiming.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "Sniper Rifle",
+      "damage": 55, "fireRate": 2.5, "range": 75,
+      "projectileSpeed": 70, "projectileColor": "#ffff88", "projectileSize": 0.08
+    },
+    "skills": {}
+  },
+  {
+    "id": "ally_jesse",
+    "name": "Jesse Pinkman",
+    "isAlly": true,
+    "modelUrl": "/assets/jesse.glb",
+    "scale": 1.0,
+    "color": "#2244aa",
+    "stats": { "speed": 5.5, "maxHealth": 80, "mass": 65, "jumpForce": 8 },
+    "animationUrls": {
+      "idle":   "/assets/anims/idle.fbx",
+      "walk":   "/assets/anims/walking.fbx",
+      "run":    "/assets/anims/running.fbx",
+      "attack": "/assets/anims/punching.fbx",
+      "death":  "/assets/anims/dying.fbx"
+    },
+    "defaultWeapon": {
+      "type": "ranged", "name": "Pistol",
+      "damage": 20, "fireRate": 0.55, "range": 38,
+      "projectileSpeed": 30, "projectileColor": "#ffee00", "projectileSize": 0.1
+    },
+    "skills": {}
+  }
+]
