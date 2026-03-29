@@ -1,15 +1,13 @@
 /**
- * ACTION ARENA — main.js  (DEV BUILD · no enemies)
+ * ACTION ARENA — main.js  (DEV BUILD)
  *
- * Key animation fixes vs previous build:
- *   1. clipAction() now sets LoopRepeat + clampWhenFinished=false explicitly
- *   2. _playClip() resets _curClip to null before force-starting idle on load
- *      so the "already playing this clip" guard never blocks the first play
- *   3. _playClip() checks prev.isRunning() before crossFadeFrom to avoid
- *      fading from a stopped action (which leaves the new action at weight 0)
- *   4. action.enabled = true; action.paused = false enforced before every play()
- *   5. mixer.timeScale driven by Dev Panel slider (0 = pause, >1 = fast)
- *   6. devPlayClip() bypasses the _curClip guard for manual clip testing
+ * NEW in this build:
+ *   • LaserEyes system — hold [G] to fire laser beams from character's eyes
+ *   • Data-driven via characters.json `laserEyes` block
+ *   • Dev Panel → Combat tab → Laser Eyes section
+ *     - "Enable Laser Eyes" toggle: lets ANY character use laser eyes (DEV override)
+ *     - Color picker: live-updates beam color
+ *     - Head Bend Mult: how aggressively the head tilts toward target while firing
  */
 
 import * as THREE     from 'three';
@@ -38,6 +36,10 @@ const DEV = {
   ultimateCdMax: 45,
   blendTime:   0.25,
   timeScale:   1.0,
+  // ── Laser Eyes ──────────────────────────────────────────────────────────────
+  laserCanUse:   false,    // boolean: override to enable laser for any character
+  laserColor:    '#ff0000',// hex string: beam + glow color
+  laserHeadBend: 1.5,      // multiplier: how far the head tilts while firing
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ const DEG2RAD  = Math.PI / 180;
 class InputManager {
   constructor () {
     this.keys = {};
-    this._jd  = {};          // "just-down" flags, consumed by justDown()
+    this._jd  = {};
     this.mouseBtn   = {};
     this.mouseDelta = { x: 0, y: 0 };
     this.locked     = false;
@@ -61,11 +63,8 @@ class InputManager {
       this.keys[e.code] = true;
       if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
         e.preventDefault();
-      
-      // Specifically prevent Ctrl+A, Ctrl+S, etc. if we use Ctrl for game actions
-      if (e.ctrlKey && ['KeyA', 'KeyS', 'KeyD', 'KeyW'].includes(e.code)) {
+      if (e.ctrlKey && ['KeyA', 'KeyS', 'KeyD', 'KeyW'].includes(e.code))
         e.preventDefault();
-      }
     });
     window.addEventListener('keyup',     e => { this.keys[e.code]     = false; });
     window.addEventListener('mousedown', e => { this.mouseBtn[e.button] = true; });
@@ -106,7 +105,6 @@ class KinematicBody {
 
   update (dt, staticCols = [], noclip = false, flightParams = null) {
     if (noclip) {
-      // Free-fly: integrate, then heavy damping so it stops quickly
       this.position.addScaledVector(this.velocity, dt);
       this.velocity.multiplyScalar(0.80);
       this.onGround = false;
@@ -120,26 +118,21 @@ class KinematicBody {
       return;
     }
 
-    // Gravity
     if (!this.onGround) this.velocity.y += DEV.gravity * dt;
 
-    // Integrate
     this.position.addScaledVector(this.velocity, dt);
 
-    // Ground
     if (this.position.y < 0) {
       this.position.y = 0; this.velocity.y = 0; this.onGround = true;
     } else if (this.position.y > 0.05) {
       this.onGround = false;
     }
 
-    // Ground friction
     if (this.onGround) {
       this.velocity.x *= DEV.friction;
       this.velocity.z *= DEV.friction;
     }
 
-    // Static collider push-out
     for (const col of staticCols) {
       const dx = this.position.x - col.position.x;
       const dz = this.position.z - col.position.z;
@@ -152,7 +145,6 @@ class KinematicBody {
       }
     }
 
-    // Map clamp
     this.position.x = Math.max(-MAP_BOUND, Math.min(MAP_BOUND, this.position.x));
     this.position.z = Math.max(-MAP_BOUND, Math.min(MAP_BOUND, this.position.z));
   }
@@ -217,7 +209,6 @@ class Projectile {
       new THREE.MeshBasicMaterial({ color: col })
     );
     this.mesh.position.copy(origin);
-    // Glow halo
     this.mesh.add(new THREE.Mesh(
       new THREE.SphereGeometry(sz * 2.5, 6, 6),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.25 })
@@ -258,6 +249,146 @@ class ProjectileManager {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  LASER EYES
+//  Hold [G] to fire twin laser beams from the character's eye sockets.
+//  Data-driven via charData.laserEyes; DEV.laserCanUse enables it for any char.
+// ═══════════════════════════════════════════════════════════════════════════════
+class LaserEyes {
+  constructor (scene) {
+    this._scene = scene;
+    this._pulse = 0;
+    this._beams = [];
+
+    // Shared impact light
+    this._light = new THREE.PointLight(0xff0000, 0, 10);
+    scene.add(this._light);
+
+    for (let i = 0; i < 2; i++) {
+      // Core beam — CylinderGeometry(r, r, height=1), scaled along Y per frame
+      const beamMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const beam    = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.014, 0.014, 1, 5),
+        beamMat
+      );
+      beam.visible = false;
+      scene.add(beam);
+
+      // Glow sheath parented to beam (inherits transform for free)
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0xff0000, transparent: true, opacity: 0.15, side: THREE.DoubleSide
+      });
+      const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 1, 5), glowMat);
+      beam.add(glow);
+
+      // Impact flare
+      const impactMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.85 });
+      const impact    = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), impactMat);
+      impact.visible  = false;
+      scene.add(impact);
+
+      this._beams.push({ beam, beamMat, glow, glowMat, impact, impactMat });
+    }
+  }
+
+  /**
+   * @param {boolean}          active
+   * @param {THREE.Vector3[]}  eyePositions  [leftEye, rightEye] world positions
+   * @param {THREE.Vector3}    dir           normalised camera / aim direction
+   * @param {string}           color         hex color string
+   * @param {number}           range         max beam length
+   * @param {number}           dt
+   */
+  update (active, eyePositions, dir, color, range, dt) {
+    this._pulse = (this._pulse + dt * 9) % (Math.PI * 2);
+    const pulse = 0.82 + 0.18 * Math.sin(this._pulse);
+
+    if (!active) {
+      this._beams.forEach(b => { b.beam.visible = false; b.impact.visible = false; });
+      this._light.intensity = 0;
+      return;
+    }
+
+    const col = new THREE.Color(color);
+    this._light.color.set(col);
+    this._light.intensity = 2.2 * pulse;
+
+    // Quaternion to rotate default Y-axis cylinder to face dir
+    const normalDir = dir.clone().normalize();
+    const yAxis     = new THREE.Vector3(0, 1, 0);
+    const q         = new THREE.Quaternion();
+    if (Math.abs(normalDir.dot(yAxis)) < 0.9999) {
+      q.setFromUnitVectors(yAxis, normalDir);
+    } else {
+      // Degenerate case: dir is straight up or down
+      q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), normalDir.y < 0 ? Math.PI : 0);
+    }
+
+    // Find the point where the beam hits the ground (y=0) or exhausts its range
+    const getEndPoint = (origin) => {
+      let t = range;
+      if (normalDir.y < -0.001) {
+        const tGround = -origin.y / normalDir.y;
+        if (tGround > 0 && tGround < t) t = tGround;
+      }
+      return origin.clone().addScaledVector(normalDir, t);
+    };
+
+    let lightPos = null;
+
+    this._beams.forEach((b, i) => {
+      const origin = eyePositions[i];
+      if (!origin) { b.beam.visible = false; b.impact.visible = false; return; }
+
+      const end    = getEndPoint(origin);
+      const length = Math.max(0.1, origin.distanceTo(end));
+      const mid    = origin.clone().lerp(end, 0.5);
+
+      // Position beam at midpoint, rotate Y→dir, scale Y to beam length
+      b.beam.position.copy(mid);
+      b.beam.quaternion.copy(q);
+      b.beam.scale.set(1, length, 1);
+      b.beam.visible = true;
+
+      b.beamMat.color.set(col);
+      b.glowMat.color.set(col);
+      b.glowMat.opacity = 0.13 * pulse;
+
+      // Impact sphere with pulse scale
+      b.impact.position.copy(end);
+      b.impact.visible = true;
+      b.impact.scale.setScalar(0.65 + 0.55 * pulse);
+      b.impactMat.color.set(col);
+      b.impactMat.opacity = 0.7 + 0.28 * pulse;
+
+      if (i === 0) lightPos = end.clone();
+    });
+
+    if (lightPos) this._light.position.copy(lightPos);
+  }
+
+  /** Live-update beam color (called from dev panel color picker) */
+  setColor (hex) {
+    const col = new THREE.Color(hex);
+    this._light.color.set(col);
+    this._beams.forEach(b => {
+      b.beamMat.color.set(col);
+      b.glowMat.color.set(col);
+    });
+  }
+
+  dispose () {
+    this._scene.remove(this._light);
+    this._beams.forEach(b => {
+      this._scene.remove(b.beam);
+      this._scene.remove(b.impact);
+      b.beam.geometry.dispose(); b.beamMat.dispose();
+      b.glow.geometry.dispose(); b.glowMat.dispose();
+      b.impact.geometry.dispose(); b.impactMat.dispose();
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  BASE CHARACTER
 // ═══════════════════════════════════════════════════════════════════════════════
 class BaseCharacter extends THREE.Group {
@@ -282,8 +413,8 @@ class BaseCharacter extends THREE.Group {
 
     // Animation state
     this.mixer     = null;
-    this._clips    = {};    // { key: AnimationAction }
-    this._curClip  = null;  // currently-active clip key
+    this._clips    = {};
+    this._curClip  = null;
     this._aimProfile = this._buildAimProfile(charData.aimRig);
     this._aimState = {
       active: false,
@@ -291,9 +422,16 @@ class BaseCharacter extends THREE.Group {
       yaw: 0,
       pitch: 0,
     };
-    this._aimRig = null;
+    this._aimRig  = null;
     this._lookRig = null;
     this._firePoseT = 0;
+
+    // Head-bend multiplier — increased by laser eyes system when active
+    this._headBendMult = 1.0;
+
+    // Laser eyes — null until PlayerController creates a LaserEyes instance
+    this._laserEyes   = null;
+    this._laserActive = false;
 
     this.cdPrimary  = 0;
     this.cdUltimate = 0;
@@ -301,7 +439,7 @@ class BaseCharacter extends THREE.Group {
     this._buildPlaceholder(charData);
   }
 
-  // ── Placeholder mesh (shown while model is loading or if load fails) ─────────
+  // ── Placeholder mesh ──────────────────────────────────────────────────────
   _buildPlaceholder (cd) {
     const col = cd.color || '#888';
 
@@ -320,14 +458,12 @@ class BaseCharacter extends THREE.Group {
     head.position.y = 1.9; head.castShadow = true;
     this.add(head);
 
-    // Eye dots (show facing direction)
     const em = new THREE.MeshBasicMaterial({ color: '#111' });
     const eg = new THREE.SphereGeometry(0.06, 4, 4);
     const eL = new THREE.Mesh(eg, em); eL.position.set(-0.1, 1.92, 0.2);
     const eR = new THREE.Mesh(eg, em); eR.position.set( 0.1, 1.92, 0.2);
     this.add(eL, eR);
 
-    // Gun stub
     const gun = new THREE.Mesh(
       new THREE.BoxGeometry(0.07, 0.07, 0.42),
       new THREE.MeshLambertMaterial({ color: '#222' })
@@ -335,7 +471,6 @@ class BaseCharacter extends THREE.Group {
     gun.position.set(0.42, 1.02, 0.24);
     this.add(gun);
 
-    // Faction ring
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.4, 0.48, 16),
       new THREE.MeshBasicMaterial({ color: '#00f5d4', side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
@@ -354,68 +489,51 @@ class BaseCharacter extends THREE.Group {
     try {
       const { root: model, isFbx } = await this._loadFile(url, gltfLoader, fbxLoader);
 
-      // Mixamo FBX exports at 100× (centimetres) — normalise to metres
       if (isFbx) model.scale.setScalar(0.01);
       model.scale.multiplyScalar(this.charData.scale || 1);
 
-  model.traverse(n => {
-  if (n.isMesh) { 
-    n.castShadow = true; 
-    n.receiveShadow = true;
-
-    // 🔥 FIX TRANSPARENCY / METALLIC ISSUES
-    const m = n.material;
-
-    if (m) {
-      m.transparent = false;   // MOST IMPORTANT
-      m.opacity = 1;
-      m.alphaTest = 0;
-
-      m.depthWrite = true;
-      m.depthTest = true;
-
-      m.side = THREE.FrontSide;
-
-      m.needsUpdate = true;
-    }
-  }
-});
-      // DEBUG: Print bone names in the loaded model
       model.traverse(n => {
-        if (n.isBone) {
-          console.log('[DEBUG] Model bone:', n.name);
+        if (n.isMesh) {
+          n.castShadow = true;
+          n.receiveShadow = true;
+          const m = n.material;
+          if (m) {
+            m.transparent = false;
+            m.opacity = 1;
+            m.alphaTest = 0;
+            m.depthWrite = true;
+            m.depthTest = true;
+            m.side = THREE.FrontSide;
+            m.needsUpdate = true;
+          }
         }
       });
 
-      // Swap out placeholder
+      model.traverse(n => {
+        if (n.isBone) console.log('[DEBUG] Model bone:', n.name);
+      });
+
       [...this.children].forEach(c => this.remove(c));
       this.add(model);
       this._model = model;
       this._cacheAimRig(model);
-      this.scale.setScalar(1); // model already carries the scale
+      this.scale.setScalar(1);
 
-      // Mixer must be created AFTER model is in the scene graph
       this.mixer = new THREE.AnimationMixer(model);
 
-
-      // Load clips — separate files (animationUrls) or embedded (animations)
       if (this.charData.animationUrls) {
         await this._loadSeparateAnims(this.charData.animationUrls, gltfLoader, fbxLoader);
       } else if (this.charData.animations) {
         await this._loadEmbeddedAnims(url, this.charData.animations, gltfLoader, fbxLoader);
       }
 
-      // Print all loaded animation keys and their durations
       Object.entries(this._clips).forEach(([key, action]) => {
         const clip = action._clip;
         if (clip) {
           console.log(`[DEBUG] Loaded animation: key='${key}', name='${clip.name}', duration=${clip.duration.toFixed(2)}s`);
-        } else {
-          console.log(`[DEBUG] Loaded animation: key='${key}', but no _clip property`);
         }
       });
 
-      // Fallback: if no 'idle' key, use whatever loaded first
       if (!this._clips.idle) {
         const first = Object.values(this._clips)[0];
         if (first) {
@@ -424,24 +542,10 @@ class BaseCharacter extends THREE.Group {
         }
       }
 
-      // DEBUG: Print track names of the idle animation
-      if (this._clips.idle && this._clips.idle._clip) {
-        console.log('[DEBUG] Idle animation tracks:');
-        this._clips.idle._clip.tracks.forEach(track => {
-          console.log('  ', track.name);
-        });
-      } else {
-        console.warn('[DEBUG] No idle animation to print tracks for.');
-      }
-
-      // ── Start idle ────────────────────────────────────────────────────────
-      // Reset _curClip to null first so _playClip's guard never blocks this
       this._curClip = null;
       this._startIdle();
 
       console.log(`[${this.charData.name}] clips loaded: [${Object.keys(this._clips).join(', ')}]`);
-
-      // Tell DevPanel to refresh its list
       window.gameManager?.devPanel?.refreshAnimTab();
 
     } catch (err) {
@@ -449,26 +553,19 @@ class BaseCharacter extends THREE.Group {
     }
   }
 
-  // Force-start idle cleanly (called right after load)
   _startIdle () {
-      const action = this._clips.idle;
-      console.log('[DEBUG] _startIdle called. this._clips.idle =', action);
-      if (!action) {
-        console.warn('[DEBUG] _startIdle: No idle action found in this._clips:', this._clips);
-        return;
-      }
-      action.enabled         = true;
-      action.paused          = false;
-      action.timeScale       = 1;
-      action.setLoop(THREE.LoopRepeat, Infinity);
-      action.clampWhenFinished = false;
-      action.reset().play();
-      this._curClip = 'idle';
-      console.log('[DEBUG] _startIdle: Idle animation started.');
+    const action = this._clips.idle;
+    if (!action) return;
+    action.enabled         = true;
+    action.paused          = false;
+    action.timeScale       = 1;
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+    action.reset().play();
+    this._curClip = 'idle';
   }
 
   async _loadSeparateAnims (urlMap, gltfLoader, fbxLoader) {
-    // Load all animation files in parallel
     await Promise.all(
       Object.entries(urlMap).map(async ([key, animUrl]) => {
         const clip = await this._loadClip(animUrl, gltfLoader, fbxLoader);
@@ -507,7 +604,6 @@ class BaseCharacter extends THREE.Group {
     }
   }
 
-  // Load any .glb/.gltf/.fbx → { root, clips, isFbx }
   async _loadFile (url, gltfLoader, fbxLoader) {
     const ext = url.split('.').pop().toLowerCase();
     if (ext === 'fbx') {
@@ -518,19 +614,15 @@ class BaseCharacter extends THREE.Group {
     return { root: gltf.scene, clips: gltf.animations || [], isFbx: false };
   }
 
-  // Load one animation clip, using cache so the same file is only fetched once
   async _loadClip (url, gltfLoader, fbxLoader) {
-    if (_animCache.has(url)) {
-      return _animCache.get(url).clone(); // each character needs its own clone
-    }
+    if (_animCache.has(url)) return _animCache.get(url).clone();
     try {
       const { clips } = await this._loadFile(url, gltfLoader, fbxLoader);
       if (!clips.length) { console.warn(`  no clip in "${url}"`); return null; }
       const clip = clips[0];
-      this._fixBoneNames(clip);    // strip "Armature|" prefix
-      this._stripRootMotion(clip); // remove hip drift
+      this._fixBoneNames(clip);
+      this._stripRootMotion(clip);
       _animCache.set(url, clip);
-      console.log(`  cached "${clip.name}" ← ${url.split('/').pop()}`);
       return clip.clone();
     } catch (e) {
       console.warn(`  clip load failed: ${url}`, e?.message);
@@ -538,16 +630,10 @@ class BaseCharacter extends THREE.Group {
     }
   }
 
-  // Remove the "Armature|" prefix Mixamo FBX exporter adds to every track
-  // Before: "Armature|mixamorigHips.quaternion"
-  // After:  "mixamorigHips.quaternion"
   _fixBoneNames (clip) {
-    for (const track of clip.tracks) {
-      track.name = track.name.replace(/^[^|]+\|/, '');
-    }
+    for (const track of clip.tracks) track.name = track.name.replace(/^[^|]+\|/, '');
   }
 
-  // Remove horizontal root-bone drift so physics drives position
   _stripRootMotion (clip) {
     clip.tracks = clip.tracks.filter(t =>
       !(t.name.toLowerCase().includes('hips') && t.name.endsWith('.position'))
@@ -556,53 +642,49 @@ class BaseCharacter extends THREE.Group {
 
   _buildAimProfile (cfg = {}) {
     const defaultBones = {
-      mixamorigRightShoulder: { aimWeight: 0.7, fireWeight: 0.45, overrideAnimation: false, aimPose: [0, 0, 0], firePose: [0, 0, 0] },
-      mixamorigRightArm:      { aimWeight: 0.9, fireWeight: 0.70, overrideAnimation: false, aimPose: [0, 0, 0], firePose: [0, 0, 0] },
-      mixamorigRightForeArm:  { aimWeight: 1.0, fireWeight: 1.00, overrideAnimation: false, aimPose: [0, 0, 0], firePose: [0, 0, 0] },
-      mixamorigRightHand:     { aimWeight: 0.40, fireWeight: 1.00, overrideAnimation: true,  aimPose: [0, 0, 0], firePose: [0, 0, 0] },
+      mixamorigRightShoulder: { aimWeight: 0.7, fireWeight: 0.45, overrideAnimation: false, aimPose: [0,0,0], firePose: [0,0,0] },
+      mixamorigRightArm:      { aimWeight: 0.9, fireWeight: 0.70, overrideAnimation: false, aimPose: [0,0,0], firePose: [0,0,0] },
+      mixamorigRightForeArm:  { aimWeight: 1.0, fireWeight: 1.00, overrideAnimation: false, aimPose: [0,0,0], firePose: [0,0,0] },
+      mixamorigRightHand:     { aimWeight: 0.40, fireWeight: 1.00, overrideAnimation: true,  aimPose: [0,0,0], firePose: [0,0,0] },
     };
 
     const bones = {};
     for (const [boneName, defaults] of Object.entries(defaultBones)) {
       const src = cfg.bones?.[boneName] || {};
       bones[boneName] = {
-        aimWeight: src.aimWeight ?? defaults.aimWeight,
-        fireWeight: src.fireWeight ?? defaults.fireWeight,
+        aimWeight:         src.aimWeight         ?? defaults.aimWeight,
+        fireWeight:        src.fireWeight        ?? defaults.fireWeight,
         overrideAnimation: src.overrideAnimation ?? defaults.overrideAnimation,
-        aimPose: [...(src.aimPose || defaults.aimPose)],
-        firePose: [...(src.firePose || defaults.firePose)],
+        aimPose:           [...(src.aimPose  || defaults.aimPose)],
+        firePose:          [...(src.firePose || defaults.firePose)],
       };
     }
 
     return {
-      enabled: cfg.enabled ?? true,
-      targetDistance: cfg.targetDistance ?? 50,
+      enabled:          cfg.enabled          ?? true,
+      targetDistance:   cfg.targetDistance   ?? 50,
       firePoseDuration: cfg.firePoseDuration ?? 0.12,
       bones,
     };
   }
 
   _cacheAimRig (model) {
-    const getBone = name => model.getObjectByName(name);
+    const getBone       = name => model.getObjectByName(name);
     const getAxisToChild = (bone, child) => {
       if (!bone || !child) return new THREE.Vector3(1, 0, 0);
       const axis = child.position.clone();
-      if (axis.lengthSq() < 1e-6) return new THREE.Vector3(1, 0, 0);
-      return axis.normalize();
+      return axis.lengthSq() < 1e-6 ? new THREE.Vector3(1, 0, 0) : axis.normalize();
     };
-    const rig = {};
+
+    const rig       = {};
     const boneNames = Object.keys(this._aimProfile.bones);
 
     for (let i = 0; i < boneNames.length; i++) {
-      const boneName = boneNames[i];
+      const boneName  = boneNames[i];
       const childName = boneNames[i + 1];
-      const bone = getBone(boneName);
-      const child = childName ? getBone(childName) : null;
-      rig[boneName] = bone ? {
-        bone,
-        axis: getAxisToChild(bone, child),
-        restQuat: bone.quaternion.clone(),
-      } : null;
+      const bone      = getBone(boneName);
+      const child     = childName ? getBone(childName) : null;
+      rig[boneName]   = bone ? { bone, axis: getAxisToChild(bone, child), restQuat: bone.quaternion.clone() } : null;
     }
 
     this._aimRig = rig;
@@ -611,24 +693,22 @@ class BaseCharacter extends THREE.Group {
 
   _cacheLookRig (model) {
     const getBone = name => model.getObjectByName(name);
-    const bones = [
-      ['mixamorigHips', 0.10, 0.16],
-      ['mixamorigSpine', 0.16, 0.22],
+    const bones   = [
+      ['mixamorigHips',   0.10, 0.16],
+      ['mixamorigSpine',  0.16, 0.22],
       ['mixamorigSpine1', 0.22, 0.30],
       ['mixamorigSpine2', 0.30, 0.40],
-      ['mixamorigNeck', 0.42, 0.55],
-      ['mixamorigHead', 0.52, 0.7],
+      ['mixamorigNeck',   0.42, 0.55],
+      ['mixamorigHead',   0.52, 0.70],
     ];
 
     this._lookRig = bones
       .map(([name, pitchWeight, yawWeight]) => {
         const bone = getBone(name);
         return bone ? {
-          bone,
-          pitchWeight,
-          yawWeight,
+          bone, pitchWeight, yawWeight,
           currentQuat: bone.quaternion.clone(),
-          targetQuat: bone.quaternion.clone(),
+          targetQuat:  bone.quaternion.clone(),
         } : null;
       })
       .filter(Boolean);
@@ -637,53 +717,42 @@ class BaseCharacter extends THREE.Group {
   _setAimState (active, dir, yaw = this._aimState.yaw, pitch = this._aimState.pitch) {
     this._aimState.active = !!active;
     if (dir && dir.lengthSq() > 1e-6) this._aimState.dir.copy(dir).normalize();
-    this._aimState.yaw = yaw;
+    this._aimState.yaw   = yaw;
     this._aimState.pitch = pitch;
   }
 
   _getAimTargetWorld () {
     const target = new THREE.Vector3();
-
     if (this._cam?.isCamera) {
       const camPos = new THREE.Vector3();
       const camDir = new THREE.Vector3();
       this._cam.getWorldPosition(camPos);
       this._cam.getWorldDirection(camDir);
-      // Simplified ray distance. The original calculation could cause issues.
-      // By using a fixed distance from the camera, we get a more reliable target
-      // on the camera's line-of-sight.
-      const rayDistance = this._aimProfile.targetDistance;
-      return target.copy(camPos).addScaledVector(camDir, rayDistance);
+      return target.copy(camPos).addScaledVector(camDir, this._aimProfile.targetDistance);
     }
-
-    return this.shootOrigin.clone().add(this._aimState.dir.clone().multiplyScalar(this._aimProfile.targetDistance));
+    return this.shootOrigin.clone().add(
+      this._aimState.dir.clone().multiplyScalar(this._aimProfile.targetDistance)
+    );
   }
 
   _triggerFirePose () {
     this._firePoseT = Math.max(this._firePoseT, this._aimProfile.firePoseDuration || 0);
   }
 
-  getAimRigConfig () {
-    return JSON.parse(JSON.stringify(this._aimProfile));
-  }
-
+  getAimRigConfig ()    { return JSON.parse(JSON.stringify(this._aimProfile)); }
   setAimRigConfig (cfg) {
     this._aimProfile = this._buildAimProfile(cfg);
     this.charData.aimRig = this.getAimRigConfig();
     if (this._model) this._cacheAimRig(this._model);
   }
 
-  _applyAimRig (dt = 1 / 60) {
+  _applyAimRig (dt = 1/60) {
     const fireActive = this._firePoseT > 0;
     if ((!this._aimState.active && !fireActive) || !this._aimRig || !this._aimProfile.enabled) return;
 
-    // Apply look-at-camera rotation to spine/head first
     this._applyLookRig(dt);
 
-    // Instead of aiming at a world target, we use the camera's direction directly.
-    // This ensures the arm rotation is parallel to the bullet trajectory, fixing the parallax issue.
     const desiredDir = this._aimState.dir;
-
     const worldQuat   = new THREE.Quaternion();
     const parentQuat  = new THREE.Quaternion();
     const desiredQuat = new THREE.Quaternion();
@@ -704,7 +773,6 @@ class BaseCharacter extends THREE.Group {
         currentAxis.copy(part.axis).applyQuaternion(worldQuat).normalize();
         deltaQuat.setFromUnitVectors(currentAxis, desiredDir);
         desiredQuat.copy(deltaQuat).multiply(worldQuat);
-
         if (part.bone.parent) {
           part.bone.parent.getWorldQuaternion(parentQuat).invert();
           desiredQuat.premultiply(parentQuat);
@@ -716,8 +784,7 @@ class BaseCharacter extends THREE.Group {
       poseQuat.setFromEuler(new THREE.Euler(
         (cfg.aimPose?.[0] || 0) * DEG2RAD,
         (cfg.aimPose?.[1] || 0) * DEG2RAD,
-        (cfg.aimPose?.[2] || 0) * DEG2RAD,
-        'XYZ'
+        (cfg.aimPose?.[2] || 0) * DEG2RAD, 'XYZ'
       ));
       finalQuat.copy(desiredQuat).multiply(poseQuat);
 
@@ -725,8 +792,7 @@ class BaseCharacter extends THREE.Group {
         firePoseQuat.setFromEuler(new THREE.Euler(
           (cfg.firePose?.[0] || 0) * DEG2RAD,
           (cfg.firePose?.[1] || 0) * DEG2RAD,
-          (cfg.firePose?.[2] || 0) * DEG2RAD,
-          'XYZ'
+          (cfg.firePose?.[2] || 0) * DEG2RAD, 'XYZ'
         ));
         finalQuat.multiply(firePoseQuat);
       }
@@ -737,28 +803,30 @@ class BaseCharacter extends THREE.Group {
     }
   }
 
-  _applyLookRig (dt = 1 / 60) {
+  _applyLookRig (dt = 1/60) {
     if (!this._lookRig?.length) return;
 
     const yawDelta = Math.atan2(
       Math.sin(this._aimState.yaw - this.rotation.y),
       Math.cos(this._aimState.yaw - this.rotation.y)
     );
-    const lookYaw = THREE.MathUtils.clamp(-yawDelta, -0.65, 0.65);
-    const lookPitch = THREE.MathUtils.clamp(this._aimState.pitch, -0.55, 0.55);
-    const blend = 1 - Math.exp(-dt * 14);
+    // _headBendMult is set to DEV.laserHeadBend when laser eyes are active
+    const bendMult = this._headBendMult ?? 1.0;
+    const lookYaw   = THREE.MathUtils.clamp(-yawDelta, -0.65, 0.65);
+    const lookPitch = THREE.MathUtils.clamp(this._aimState.pitch, -0.55, 0.55) * bendMult;
+
+    const blend    = 1 - Math.exp(-dt * 14);
     const poseQuat = new THREE.Quaternion();
-    const animatedQuat = new THREE.Quaternion();
+    const animQuat = new THREE.Quaternion();
 
     for (const part of this._lookRig) {
-      animatedQuat.copy(part.bone.quaternion);
+      animQuat.copy(part.bone.quaternion);
       poseQuat.setFromEuler(new THREE.Euler(
         lookPitch * part.pitchWeight,
-        lookYaw * part.yawWeight,
-        0,
-        'XYZ'
+        lookYaw   * part.yawWeight,
+        0, 'XYZ'
       ));
-      part.targetQuat.copy(animatedQuat).multiply(poseQuat);
+      part.targetQuat.copy(animQuat).multiply(poseQuat);
       part.currentQuat.slerp(part.targetQuat, blend);
       part.bone.quaternion.copy(part.currentQuat);
       part.bone.updateMatrixWorld(true);
@@ -766,53 +834,25 @@ class BaseCharacter extends THREE.Group {
   }
 
   // ── Animation playback ─────────────────────────────────────────────────────
-  /**
-   * Transition to a named clip. Safe to call every frame.
-   * Guards:
-   *   - returns early if that clip is already the active one
-   *   - checks prev.isRunning() before crossFadeFrom so we never fade
-   *     from a stopped/reset action (which would leave the new action at weight 0)
-   */
   _playClip (name) {
-    if (this._curClip === name) {
-      // Removed debug log to prevent spam
-      return; // already playing
-    }
+    if (this._curClip === name) return;
     const next = this._clips[name];
-    if (!next) {
-      console.warn(`[DEBUG] _playClip('${name}') failed: clip not loaded. this._clips:`, this._clips);
-      return;
-    }
+    if (!next) { console.warn(`[DEBUG] _playClip('${name}') failed: clip not loaded.`); return; }
 
     const prev = this._clips[this._curClip];
-
-    // Ensure the target action is in a good state before playing
     next.enabled   = true;
     next.paused    = false;
     next.timeScale = 1;
 
     if (prev && prev.isRunning()) {
-      console.log(`[DEBUG] _playClip('${name}'): crossfading from '${this._curClip}'.`);
       next.reset().crossFadeFrom(prev, DEV.blendTime, false).play();
     } else {
-      // If there's a previous clip that's not running (e.g. a clamped, finished one-shot),
-      // explicitly fade it out.
-      if (prev) {
-        prev.fadeOut(DEV.blendTime);
-      }
-      // Fade in the new clip.
-      console.log(`[DEBUG] _playClip('${name}'): fading in.`);
+      if (prev) prev.fadeOut(DEV.blendTime);
       next.reset().fadeIn(DEV.blendTime > 0 ? DEV.blendTime : 0).play();
     }
-
     this._curClip = name;
-    // Removed debug log to prevent spam
   }
 
-  /**
-   * Force-play a clip by key, bypassing the "already playing" guard.
-   * Used by DevPanel's ▶ PLAY buttons for manual testing.
-   */
   devPlayClip (name) {
     const action = this._clips[name]; if (!action) return;
     this.mixer?.stopAllAction();
@@ -821,17 +861,16 @@ class BaseCharacter extends THREE.Group {
     this._curClip = name;
   }
 
-  // Advance the animation mixer — called inside _baseUpdate every frame
   _tickMixer (dt) {
     if (!this.mixer) return;
-    this.mixer.timeScale = DEV.timeScale; // let DevPanel slow/pause/speed up
+    this.mixer.timeScale = DEV.timeScale;
     this.mixer.update(dt);
   }
 
   // ── Health / damage ────────────────────────────────────────────────────────
   takeDamage (amount) {
     if (this.isDead) return;
-    if (DEV.godMode) return; // invincible
+    if (DEV.godMode) return;
     this.health = Math.max(0, this.health - amount);
     this.traverse(n => {
       if (n.isMesh && n.material?.emissive) {
@@ -854,28 +893,15 @@ class BaseCharacter extends THREE.Group {
 
   get shootOrigin () {
     const handBone = this._model?.getObjectByName('mixamorigRightHand');
-
-    // If we have a rigged hand and are aiming/firing, use it for origin
     if (handBone && (this._aimState.active || this._firePoseT > 0)) {
-      const handPosition = new THREE.Vector3();
-      handBone.getWorldPosition(handPosition);
-
-      // Move origin slightly forward from the hand wrist, along the aim direction
-      // We use the aim direction from the state, which is synced from the camera
-      const forwardOffset = 0.2; // 20cm
-      if (this._aimState.dir.lengthSq() > 1e-6) {
-        handPosition.addScaledVector(this._aimState.dir, forwardOffset);
-      }
-      
-      // Add a slight vertical offset to better align with a potential gun model
-      handPosition.y += 0.05;
-
-      return handPosition;
+      const handPos = new THREE.Vector3();
+      handBone.getWorldPosition(handPos);
+      if (this._aimState.dir.lengthSq() > 1e-6)
+        handPos.addScaledVector(this._aimState.dir, 0.2);
+      handPos.y += 0.05;
+      return handPos;
     }
-
-    // Fallback to old logic (placeholder or non-aiming)
     const offset = this.bulletOriginOffset.clone();
-    // Apply character's rotation to make the offset relative to the character's facing direction
     offset.applyQuaternion(this.quaternion);
     return this.body.position.clone().add(offset);
   }
@@ -904,7 +930,7 @@ class BaseCharacter extends THREE.Group {
     m.position.y = 1; return m;
   }
 
-  // ── Shared per-frame update (call from subclass update) ───────────────────
+  // ── Shared per-frame update ───────────────────────────────────────────────
   _baseUpdate (dt) {
     if (this.isDead) { this._deathTtl -= dt; return; }
 
@@ -920,10 +946,11 @@ class BaseCharacter extends THREE.Group {
     }
 
     this.weapon?.update(dt);
-    this._tickMixer(dt); // ← drives all AnimationActions
+    this._tickMixer(dt);
   }
 
   dispose () {
+    this._laserEyes?.dispose();
     this._scene.remove(this);
     this.mixer?.stopAllAction();
     this.traverse(n => {
@@ -962,29 +989,72 @@ class PlayerController extends BaseCharacter {
     this._jumpCd  = 0;
     this._lastJumpPress = 0;
     this._jumpPressInterval = 0.3;
-    this._isArmed = true;    // Player starts with weapon equipped
-    this._punchCd = 0;      // Cooldown for unarmed attacks
-    this._isPunching = false; // Is an attack animation playing?
-    // Camera config for SpringCamera — load from charData.camera if present
+    this._isArmed   = true;
+    this._punchCd   = 0;
+    this._isPunching = false;
+
     const defaultCam = { camOffset: { x: 0.7, y: 1.6, z: 5.5 }, cameraPivotY: 1.6 };
     if (charData.camera) {
       this._sizeConfig = {
-        camOffset: { ...defaultCam.camOffset, ...(charData.camera.camOffset || {}) },
-        cameraPivotY: charData.camera.cameraPivotY ?? defaultCam.cameraPivotY
+        camOffset:     { ...defaultCam.camOffset, ...(charData.camera.camOffset || {}) },
+        cameraPivotY:  charData.camera.cameraPivotY ?? defaultCam.cameraPivotY
       };
     } else {
       this._sizeConfig = defaultCam;
     }
-    // Force play idle animation on creation
+
+    // ── Laser Eyes ─────────────────────────────────────────────────────────
+    this._laserEyes   = new LaserEyes(this._scene);
+    this._laserActive = false;
+
     this._playClip('idle');
+  }
+
+  // ── Return world positions of both eyes (for laser origin) ──────────────
+  _getEyePositions () {
+    if (this._model) {
+      // Best case: Mixamo provides dedicated eye bones
+      const lBone = this._model.getObjectByName('mixamorigLeftEye');
+      const rBone = this._model.getObjectByName('mixamorigRightEye');
+      if (lBone && rBone) {
+        const l = new THREE.Vector3(), r = new THREE.Vector3();
+        lBone.getWorldPosition(l);
+        rBone.getWorldPosition(r);
+        return [l, r];
+      }
+
+      // Fallback: derive from head bone + manual offset
+      const head = this._model.getObjectByName('mixamorigHead') ||
+                   this._model.getObjectByName('Head');
+      if (head) {
+        const headPos   = new THREE.Vector3();
+        head.getWorldPosition(headPos);
+        const charRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
+        const charFwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quaternion);
+        const base = headPos.clone()
+          .addScaledVector(charFwd, 0.09)
+          .addScaledVector(new THREE.Vector3(0, 1, 0), 0.02);
+        return [
+          base.clone().addScaledVector(charRight, -0.065),
+          base.clone().addScaledVector(charRight,  0.065),
+        ];
+      }
+    }
+
+    // Ultimate fallback: estimate from body position
+    const baseY     = this.body.position.y + 1.72;
+    const charRight = new THREE.Vector3(0.065, 0, 0).applyQuaternion(this.quaternion);
+    const charFwd   = new THREE.Vector3(0, 0, -0.1).applyQuaternion(this.quaternion);
+    const base      = this.body.position.clone(); base.y = baseY;
+    base.add(charFwd);
+    return [base.clone().sub(charRight), base.clone().add(charRight)];
   }
 
   _toggleFly () {
     if (!this.flightParams.canFly) return;
     this.body.isFlying = !this.body.isFlying;
-
     if (this.body.isFlying) {
-      this.body.velocity.y = 0; // Prevent falling while toggling
+      this.body.velocity.y = 0;
       this._playClip('float');
       window.gameManager?.ui.showMessage('Flight Mode ON', 1500);
     } else {
@@ -994,15 +1064,14 @@ class PlayerController extends BaseCharacter {
 
   _rotateTowardYaw (targetYaw, dt, speed = 14) {
     const delta = Math.atan2(Math.sin(targetYaw - this.rotation.y), Math.cos(targetYaw - this.rotation.y));
-    const step = Math.min(1, dt * speed);
-    this.rotation.y += delta * step;
+    this.rotation.y += delta * Math.min(1, dt * speed);
   }
 
   _syncAimFromCamera () {
     const camDir = new THREE.Vector3();
     this._cam.getWorldDirection(camDir);
     camDir.normalize();
-    const yaw = Math.atan2(-camDir.x, -camDir.z);
+    const yaw   = Math.atan2(-camDir.x, -camDir.z);
     const pitch = Math.asin(THREE.MathUtils.clamp(-camDir.y, -1, 1));
     this._setAimState(this._aimState.active, camDir, yaw, pitch);
     return camDir;
@@ -1020,33 +1089,22 @@ class PlayerController extends BaseCharacter {
     // ── Camera look ────────────────────────────────────────────────────────
     const delta = input.consumeDelta();
     this._yaw   -= delta.x * 0.0022;
-    // Allow much wider pitch (almost straight up/down, but not flipping)
     const maxPitch = Math.PI/2 - 0.1;
     const minPitch = -Math.PI/2 + 0.1;
     this._pitch = Math.max(minPitch, Math.min(maxPitch, this._pitch + delta.y * 0.0022));
 
-    // Calculate movement vectors from yaw and pitch. These are used for player
-    // movement input and may not match the camera's final direction perfectly.
     const fwd = new THREE.Vector3(
       -Math.sin(this._yaw) * Math.cos(this._pitch),
-      -Math.sin(this._pitch), // flip sign to fix inversion
+      -Math.sin(this._pitch),
       -Math.cos(this._yaw) * Math.cos(this._pitch)
     );
-    const right = new THREE.Vector3(
-      Math.cos(this._yaw),
-      0,
-      -Math.sin(this._yaw)
-    );
+    const right = new THREE.Vector3(Math.cos(this._yaw), 0, -Math.sin(this._yaw));
 
-    // For accurate shooting, get the world direction from the camera itself.
-    // This is the "true" direction the player is looking and where projectiles should go.
     const camDir = new THREE.Vector3();
     this._cam.getWorldDirection(camDir);
 
     const isAiming = input.isMouse(2);
     const isFiring = input.isMouse(0) || input.isDown('KeyF');
-    // We still pass camDir to _setAimState for consistency, although the visual
-    // aiming rig on the player character reads the camera direction directly.
     this._setAimState(isAiming || isFiring, camDir, this._yaw, this._pitch);
 
     // ── Movement ───────────────────────────────────────────────────────────
@@ -1058,17 +1116,13 @@ class PlayerController extends BaseCharacter {
     if (input.isDown('KeyA') || input.isDown('ArrowLeft'))  move.sub(right);
     if (input.isDown('KeyD') || input.isDown('ArrowRight')) move.add(right);
 
-    // Double-tap jump to toggle flight
     if (input.justDown('Space')) {
       const now = performance.now() / 1000;
-      if (now - this._lastJumpPress < this._jumpPressInterval) {
-        this._toggleFly();
-      }
+      if (now - this._lastJumpPress < this._jumpPressInterval) this._toggleFly();
       this._lastJumpPress = now;
     }
 
     if (DEV.noclip) {
-      // ── No-clip: 6DOF free flight ────────────────────────────────────────
       if (move.lengthSq() > 0) {
         move.normalize();
         this.body.velocity.x = move.x * this.speed * 3;
@@ -1079,46 +1133,28 @@ class PlayerController extends BaseCharacter {
       else                                                                   this.body.velocity.y *= 0.8;
       if (isAiming) this._rotateTowardYaw(Math.atan2(camDir.x, camDir.z), dt);
       else this.rotation.y = Math.atan2(fwd.x, fwd.z);
-      // Keep idle playing in noclip so we have a visual reference
       this._playClip('idle');
 
     } else if (this.body.isFlying) {
-      // ── Flight movement: fly where you look ──────────────────────────────
       const isMoving = move.lengthSq() > 0.01;
       const flySpeed = this.flightParams.flySpeed || 10;
       const currentSpeed = sprint ? flySpeed * DEV.sprintMult : flySpeed;
-      
-      // When moving, velocity is based on camera direction
+
       if (isMoving) {
         move.normalize();
         this.body.velocity.copy(move).multiplyScalar(currentSpeed);
       }
-
-      // Vertical thrust is only for hovering up/down
       if (input.isDown('Space')) {
         this.body.velocity.y = this.flightParams.ascendSpeed || 5;
       } else if (input.isDown('ControlLeft') || input.isDown('ControlRight')) {
-        this.body.velocity.y = - (this.flightParams.descendSpeed || 5);
-      } else {
-        // If not moving and not using vertical thrust, hover
-        if (!isMoving) {
-          this.body.velocity.y *= 0.9;
-        }
+        this.body.velocity.y = -(this.flightParams.descendSpeed || 5);
+      } else if (!isMoving) {
+        this.body.velocity.y *= 0.9;
       }
-      
-      // Always face camera direction when flying
       this.rotation.y = Math.atan2(fwd.x, fwd.z);
+      this._playClip(isMoving ? (sprint ? 'flying' : 'float') : 'float');
 
-      // Animation
-      if (isMoving) {
-        this._playClip(sprint ? 'flying' : 'float');
-      } else {
-        this._playClip('float');
-      }
-    
     } else {
-      // ── Normal movement ──────────────────────────────────────────────────
-      // Don't play movement animations if we are in the middle of an attack
       if (!this._isPunching) {
         if (this.body.onGround) {
           if (move.lengthSq() > 0) {
@@ -1130,7 +1166,6 @@ class PlayerController extends BaseCharacter {
             else this.rotation.y = Math.atan2(move.x, move.z);
             this._playClip(sprint ? 'run' : 'walk');
           } else {
-            // Dampen and play idle
             this.body.velocity.x *= 0.65;
             this.body.velocity.z *= 0.65;
             if (isAiming) this._rotateTowardYaw(Math.atan2(camDir.x, camDir.z), dt);
@@ -1139,7 +1174,6 @@ class PlayerController extends BaseCharacter {
         }
       }
 
-      // Jump
       if (input.isDown('Space') && this.body.onGround && this._jumpCd <= 0) {
         this.body.velocity.y = this.jumpForce;
         this.body.onGround   = false;
@@ -1150,7 +1184,7 @@ class PlayerController extends BaseCharacter {
 
     if (this._jumpCd > 0) this._jumpCd -= dt;
 
-    // ── Shoot / Attack ─────────────────────────────────────────────────────
+    // ── Shoot / Punch ─────────────────────────────────────────────────────
     if (input.isMouse(0) || input.isDown('KeyF')) {
       if (this._isArmed) {
         const didFire = this.weapon?.tryFire(this.shootOrigin, camDir, pm, 'player');
@@ -1158,11 +1192,8 @@ class PlayerController extends BaseCharacter {
       } else {
         if (this._punchCd <= 0) {
           this._playClip('attack');
-          this._punchCd = 0.5; // 0.5s cooldown
-
+          this._punchCd    = 0.5;
           this._isPunching = true;
-          
-          // Listen for the animation to finish
           const listener = (e) => {
             if (e.action === this._clips.attack) {
               this._isPunching = false;
@@ -1172,6 +1203,16 @@ class PlayerController extends BaseCharacter {
           this.mixer.addEventListener('finished', listener);
         }
       }
+    }
+
+    // ── Laser Eyes — hold [G] ─────────────────────────────────────────────
+    const canLaser = DEV.laserCanUse || (this.charData.laserEyes?.canUse ?? false);
+    if (canLaser && input.isDown('KeyG')) {
+      this._laserActive = true;
+      // Keep aim state active so the look-rig engages head bending
+      this._setAimState(true, camDir, this._yaw, this._pitch);
+    } else {
+      this._laserActive = false;
     }
 
     // ── Skills ─────────────────────────────────────────────────────────────
@@ -1209,7 +1250,6 @@ class PlayerController extends BaseCharacter {
       window.gameManager?.ui.showMessage('🚀 JETPACK DASH');
 
     } else {
-      // Generic burst
       const cfg = { ...this.charData.defaultWeapon, damage: (this.charData.defaultWeapon?.damage || 10) * 1.5 };
       for (let i = 0; i < 3; i++) {
         setTimeout(() => {
@@ -1231,46 +1271,63 @@ class PlayerController extends BaseCharacter {
     window.gameManager?.ui.showMessage(`✦ ${sk.name || 'ULTIMATE'}`, 2000);
   }
 
-  // _updateCamera is now handled by SpringCamera
-
   update (dt, pm, cols, springCamera) {
     this._baseUpdate(dt);
     if (this._punchCd > 0) this._punchCd -= dt;
+
     if (!this.isDead) {
       this.body.update(dt, cols, DEV.noclip, this.flightParams);
 
-      // Flight tilting
       if (this.body.isFlying) {
-        const localVelocity = this.body.velocity.clone().applyQuaternion(this.quaternion.clone().invert());
-        
-        const targetPitch = localVelocity.y * 0.05; // Ascend/descend pitch
-
-        const lerpFactor = 0.08;
-        this.rotation.x = THREE.MathUtils.lerp(this.rotation.x, targetPitch, lerpFactor);
-        this.rotation.z = THREE.MathUtils.lerp(this.rotation.z, 0, lerpFactor); // remove roll
+        const localVel   = this.body.velocity.clone().applyQuaternion(this.quaternion.clone().invert());
+        const targetPitch = localVel.y * 0.05;
+        const lf = 0.08;
+        this.rotation.x = THREE.MathUtils.lerp(this.rotation.x, targetPitch, lf);
+        this.rotation.z = THREE.MathUtils.lerp(this.rotation.z, 0, lf);
       } else {
-        // Reset tilt when not flying
-        const lerpFactor = 0.08;
-        this.rotation.z = THREE.MathUtils.lerp(this.rotation.z, 0, lerpFactor);
-        this.rotation.x = THREE.MathUtils.lerp(this.rotation.x, 0, lerpFactor);
+        const lf = 0.08;
+        this.rotation.z = THREE.MathUtils.lerp(this.rotation.z, 0, lf);
+        this.rotation.x = THREE.MathUtils.lerp(this.rotation.x, 0, lf);
       }
 
-      // Use SpringCamera for camera updates
       if (springCamera) {
         springCamera.update(
-          this, // player mesh
+          this,
           this._sizeConfig,
           this._yaw,
           this._pitch,
-          cols?.map(c => c.mesh).filter(Boolean) // collision meshes
+          cols?.map(c => c.mesh).filter(Boolean)
         );
       }
+
       if (this._aimState.active || this._firePoseT > 0) this._syncAimFromCamera();
 
-      // Don't apply procedural aim rig if we're in the middle of a punch animation
-      if (!this._isPunching) {
-        this._applyAimRig(dt);
+      // ── Head bend multiplier for laser eyes ──────────────────────────────
+      const canLaser = DEV.laserCanUse || (this.charData.laserEyes?.canUse ?? false);
+      this._headBendMult = (this._laserActive && canLaser) ? DEV.laserHeadBend : 1.0;
+
+      if (!this._isPunching) this._applyAimRig(dt);
+
+      // ── Laser Eyes update ─────────────────────────────────────────────────
+      if (this._laserEyes) {
+        const laserColor = DEV.laserColor;
+        const laserRange = this.charData.laserEyes?.range ?? 100;
+
+        const camDir = new THREE.Vector3();
+        this._cam.getWorldDirection(camDir);
+
+        this._laserEyes.update(
+          this._laserActive && canLaser,
+          this._getEyePositions(),
+          camDir,
+          laserColor,
+          laserRange,
+          dt
+        );
       }
+    } else {
+      // Keep lasers off when dead
+      this._laserEyes?.update(false, [], new THREE.Vector3(), DEV.laserColor, 0, dt);
     }
   }
 }
@@ -1311,7 +1368,6 @@ class LevelBuilder {
       this.colliders.push({ position: new THREE.Vector3(x, 0, z), radius: Math.max(w, d) * 0.52 });
     }
 
-    // Cover crates
     for (const [cx, cz] of [[3.5,3.5],[-3.5,5.5],[7.5,-3.5],[-6.5,-2.5]]) {
       const sz = 1.2 + Math.random() * 0.6;
       const m  = new THREE.Mesh(new THREE.BoxGeometry(sz,sz,sz), new THREE.MeshLambertMaterial({ color: '#8B6914' }));
@@ -1330,7 +1386,6 @@ class UIManager {
 
   update (player) {
     if (!player) return;
-
     const pct  = (player.health / player.maxHealth) * 100;
     const fill = this.$('health-fill');
     if (fill) {
@@ -1358,7 +1413,7 @@ class UIManager {
     const s2 = this.$('skill-name-2');if (s2) s2.textContent = cd.skills?.ultimate?.name  || 'Ultimate';
     const wn = this.$('weapon-name'); if (wn) wn.textContent = '🔫 ' + (cd.defaultWeapon?.name || '—');
     const emo = { walter_white:'⚗', t800:'⚡', mando:'🚀' };
-    const ult = { walter_white:'👤', t800:'☢', mando:'🐦' };
+    const ult = { walter_white:'👤', t800:'☢',  mando:'🐦' };
     const e1 = this.$('primary-emoji');  if (e1) e1.textContent = emo[cd.id] || '⚡';
     const e2 = this.$('ultimate-emoji'); if (e2) e2.textContent = ult[cd.id] || '💥';
   }
@@ -1417,10 +1472,9 @@ class DevPanel {
 
     this._initTabs();
     this._initDrag();
-    this._initShootOriginEditor(); // Create the new sliders
+    this._initShootOriginEditor();
     this._wireAll();
 
-    // Backtick hotkey
     window.addEventListener('keydown', e => {
       if (e.code === 'Backquote') this.toggle();
     });
@@ -1476,73 +1530,68 @@ class DevPanel {
     window.addEventListener('mouseup', () => { dragging = false; });
   }
 
-  _initShootOriginEditor() {
-      const parent = document.getElementById('tab-character');
-      if (!parent) return;
+  _initShootOriginEditor () {
+    const parent = document.getElementById('tab-character');
+    if (!parent) return;
 
-      const createSlider = (id, label, min, max, step, value) => {
-          const row = document.createElement('div');
-          row.className = 'dev-row';
-          row.innerHTML = `
-              <label>${label}</label>
-              <input class="dev-slider" type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}"/>
-              <span class="val" id="${id}-v">${parseFloat(value).toFixed(2)}</span>
-          `;
-          parent.appendChild(row);
-      };
+    const createSlider = (id, label, min, max, step, value) => {
+      const row = document.createElement('div');
+      row.className = 'dev-row';
+      row.innerHTML = `
+        <label>${label}</label>
+        <input class="dev-slider" type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}"/>
+        <span class="val" id="${id}-v">${parseFloat(value).toFixed(2)}</span>`;
+      parent.appendChild(row);
+    };
 
-      const bulletSection = document.createElement('div');
-      bulletSection.className = 'dev-section';
-      bulletSection.textContent = 'Bullet Origin';
-      parent.appendChild(bulletSection);
+    const bulletSection = document.createElement('div');
+    bulletSection.className = 'dev-section';
+    bulletSection.textContent = 'Bullet Origin';
+    parent.appendChild(bulletSection);
 
-      createSlider('d-shoot-x', 'Offset X', -2, 2, 0.01, 0);
-      createSlider('d-shoot-y', 'Offset Y', 0, 3, 0.01, 1.4);
-      createSlider('d-shoot-z', 'Offset Z', -2, 2, 0.01, 0.2);
+    createSlider('d-shoot-x', 'Offset X', -2, 2, 0.01, 0);
+    createSlider('d-shoot-y', 'Offset Y', 0, 3, 0.01, 1.4);
+    createSlider('d-shoot-z', 'Offset Z', -2, 2, 0.01, 0.2);
 
-      const exportSection = document.createElement('div');
-      exportSection.className = 'dev-section';
-      exportSection.innerHTML = `<textarea id="d-bullet-export" class="dev-export" rows="4" readonly></textarea><button id="d-bullet-copy" class="dev-btn2">Copy JSON</button>`;
-      parent.appendChild(exportSection);
+    const exportSection = document.createElement('div');
+    exportSection.className = 'dev-section';
+    exportSection.innerHTML = `<textarea id="d-bullet-export" class="dev-export" rows="4" readonly></textarea><button id="d-bullet-copy" class="dev-btn accent">Copy JSON</button>`;
+    parent.appendChild(exportSection);
 
-      const flightSection = document.createElement('div');
-      flightSection.className = 'dev-section';
-      flightSection.textContent = 'Flight';
-      parent.appendChild(flightSection);
+    const flightSection = document.createElement('div');
+    flightSection.className = 'dev-section';
+    flightSection.textContent = 'Flight';
+    parent.appendChild(flightSection);
 
-      const flightToggleRow = document.createElement('div');
-      flightToggleRow.className = 'dev-row';
-      flightToggleRow.innerHTML = `
-          <label>Can Fly</label>
-          <input class="dev-toggle" type="checkbox" id="d-flight-canfly"/>
-      `;
-      parent.appendChild(flightToggleRow);
+    const flightToggleRow = document.createElement('div');
+    flightToggleRow.className = 'dev-row';
+    flightToggleRow.innerHTML = `
+      <label>Can Fly</label>
+      <input class="dev-toggle" type="checkbox" id="d-flight-canfly"/>`;
+    parent.appendChild(flightToggleRow);
 
-      createSlider('d-flight-speed', 'Fly Speed', 0, 30, 0.5, 10);
-      createSlider('d-flight-ascend', 'Ascend Speed', 0, 20, 0.5, 6);
-      createSlider('d-flight-descend', 'Descend Speed', 0, 20, 0.5, 4);
-      createSlider('d-flight-friction', 'Fly Friction', 0.8, 0.99, 0.01, 0.92);
+    createSlider('d-flight-speed',   'Fly Speed',      0, 30, 0.5,  10);
+    createSlider('d-flight-ascend',  'Ascend Speed',   0, 20, 0.5,  6);
+    createSlider('d-flight-descend', 'Descend Speed',  0, 20, 0.5,  4);
+    createSlider('d-flight-friction','Fly Friction', 0.8, 0.99, 0.01, 0.92);
   }
 
   _wireAll () {
     // CHARACTER
-    this._slider('d-scale',   v => { this.game.player?.scale.setScalar(+v); });
-    this._slider('d-speed',   v => { const p = this.game.player; if (p) { p.speed = +v; p.baseSpeed = +v; } });
-    this._slider('d-sprint',  v => { DEV.sprintMult = +v; }, '×');
-    this._slider('d-jump',    v => { const p = this.game.player; if (p) p.jumpForce = +v; });
-    this._slider('d-maxhp',   v => { const p = this.game.player; if (p) { p.maxHealth = +v; p.health = Math.min(p.health, +v); } });
-    this._btn2('d-fullheal',  () => { const p = this.game.player; if (p) p.health = p.maxHealth; });
+    this._slider('d-scale',  v => { this.game.player?.scale.setScalar(+v); });
+    this._slider('d-speed',  v => { const p = this.game.player; if (p) { p.speed = +v; p.baseSpeed = +v; } });
+    this._slider('d-sprint', v => { DEV.sprintMult = +v; }, '×');
+    this._slider('d-jump',   v => { const p = this.game.player; if (p) p.jumpForce = +v; });
+    this._slider('d-maxhp',  v => { const p = this.game.player; if (p) { p.maxHealth = +v; p.health = Math.min(p.health, +v); } });
+    this._btn2('d-fullheal', () => { const p = this.game.player; if (p) p.health = p.maxHealth; });
 
     // Bullet Origin
-    const onBulletOriginChange = (v, axis) => {
-        if (this.game.player) {
-            this.game.player.bulletOriginOffset[axis] = +v;
-            this.updateBulletOriginExport();
-        }
+    const onBulletChange = (v, axis) => {
+      if (this.game.player) { this.game.player.bulletOriginOffset[axis] = +v; this.updateBulletOriginExport(); }
     };
-    this._slider('d-shoot-x', v => onBulletOriginChange(v, 'x'));
-    this._slider('d-shoot-y', v => onBulletOriginChange(v, 'y'));
-    this._slider('d-shoot-z', v => onBulletOriginChange(v, 'z'));
+    this._slider('d-shoot-x', v => onBulletChange(v, 'x'));
+    this._slider('d-shoot-y', v => onBulletChange(v, 'y'));
+    this._slider('d-shoot-z', v => onBulletChange(v, 'z'));
     this._btn2('d-bullet-copy', async () => {
       const p = this.game.player; if (!p) return;
       const text = `"bulletOriginOffset": ${this.getBulletOriginExportText(p)}`;
@@ -1552,37 +1601,26 @@ class DevPanel {
     });
 
     // Flight
-    this._toggle('d-flight-canfly', v => {
-      const p = this.game.player; if (!p) return;
-      p.flightParams.canFly = v;
-    });
-    this._slider('d-flight-speed', v => { const p = this.game.player; if (p) p.flightParams.flySpeed = +v; });
-    this._slider('d-flight-ascend', v => { const p = this.game.player; if (p) p.flightParams.ascendSpeed = +v; });
+    this._toggle('d-flight-canfly', v => { const p = this.game.player; if (p) p.flightParams.canFly = v; });
+    this._slider('d-flight-speed',   v => { const p = this.game.player; if (p) p.flightParams.flySpeed     = +v; });
+    this._slider('d-flight-ascend',  v => { const p = this.game.player; if (p) p.flightParams.ascendSpeed  = +v; });
     this._slider('d-flight-descend', v => { const p = this.game.player; if (p) p.flightParams.descendSpeed = +v; });
-    this._slider('d-flight-friction', v => { const p = this.game.player; if (p) p.flightParams.flyFriction = +v; });
+    this._slider('d-flight-friction',v => { const p = this.game.player; if (p) p.flightParams.flyFriction  = +v; });
 
-    // CAMERA (DEV)
-    this._slider('d-camx', v => {
-      const p = this.game.player; if (p) p._sizeConfig.camOffset.x = +v;
-    });
-    this._slider('d-camy', v => {
-      const p = this.game.player; if (p) p._sizeConfig.camOffset.y = +v;
-    });
-    this._slider('d-camz', v => {
-      const p = this.game.player; if (p) p._sizeConfig.camOffset.z = +v;
-    });
-    this._slider('d-campivot', v => {
-      const p = this.game.player; if (p) p._sizeConfig.cameraPivotY = +v;
-    });
+    // CAMERA
+    this._slider('d-camx',    v => { const p = this.game.player; if (p) p._sizeConfig.camOffset.x = +v; });
+    this._slider('d-camy',    v => { const p = this.game.player; if (p) p._sizeConfig.camOffset.y = +v; });
+    this._slider('d-camz',    v => { const p = this.game.player; if (p) p._sizeConfig.camOffset.z = +v; });
+    this._slider('d-campivot',v => { const p = this.game.player; if (p) p._sizeConfig.cameraPivotY = +v; });
 
     // PHYSICS
     this._slider('d-gravity',  v => { DEV.gravity  = +v; });
     this._slider('d-friction', v => { DEV.friction  = +v; });
-    this._toggle('d-noclip',   v => {
+    this._toggle('d-noclip',  v => {
       DEV.noclip = v;
       document.getElementById('noclip-badge').style.display = v ? 'block' : 'none';
     });
-    this._toggle('d-godmode',  v => {
+    this._toggle('d-godmode', v => {
       DEV.godMode = v;
       document.getElementById('godmode-badge').style.display = v ? 'block' : 'none';
     });
@@ -1607,14 +1645,30 @@ class DevPanel {
       document.getElementById('d-dmg-v').textContent = '1.0×';
     });
 
+    // ── LASER EYES (Combat tab) ────────────────────────────────────────────
+    this._toggle('d-laser-canuse', v => {
+      DEV.laserCanUse = v;
+      const p = this.game.player;
+      if (p && !v) {
+        // Immediately shut off beams when toggled off
+        p._laserActive = false;
+      }
+    });
+
+    const laserColorEl = document.getElementById('d-laser-color');
+    if (laserColorEl) {
+      laserColorEl.addEventListener('input', e => {
+        DEV.laserColor = e.target.value;
+        this.game.player?._laserEyes?.setColor(e.target.value);
+      });
+    }
+
+    this._slider('d-laser-headbend', v => { DEV.laserHeadBend = +v; }, '×');
+
     // ANIMATIONS
-    this._slider('d-blend', v => {
-      DEV.blendTime = +v;
-      const p = this.game.player; if (p) p._blendTime = +v; // sync
-    }, 's');
+    this._slider('d-blend',     v => { DEV.blendTime = +v; }, 's');
     this._slider('d-timescale', v => {
       DEV.timeScale = +v;
-      // also apply immediately to mixer
       const p = this.game.player;
       if (p?.mixer) p.mixer.timeScale = +v;
     }, '×');
@@ -1623,20 +1677,17 @@ class DevPanel {
     this._initAimRigEditor();
   }
 
-  refreshBulletOriginEditor() {
+  refreshBulletOriginEditor () {
     const p = this.game.player;
     const parent = document.getElementById('tab-character');
-    if (!p) {
-        if (parent) parent.style.opacity = '0.45';
-        return;
-    }
+    if (!p) { if (parent) parent.style.opacity = '0.45'; return; }
     if (parent) parent.style.opacity = '1';
 
     const setSlider = (id, value) => {
-        const slider = document.getElementById(id);
-        const label = document.getElementById(`${id}-v`);
-        if (slider) slider.value = value;
-        if (label) label.textContent = parseFloat(value).toFixed(2);
+      const s = document.getElementById(id);
+      const l = document.getElementById(`${id}-v`);
+      if (s) s.value = value;
+      if (l) l.textContent = parseFloat(value).toFixed(2);
     };
 
     setSlider('d-shoot-x', p.bulletOriginOffset.x);
@@ -1645,116 +1696,93 @@ class DevPanel {
     this.updateBulletOriginExport();
   }
 
-  getBulletOriginExportText(player) {
-      if (!player) return '{}';
-      return JSON.stringify(player.bulletOriginOffset, (k,v) => v.toFixed ? Number(v.toFixed(3)) : v, 2);
+  getBulletOriginExportText (player) {
+    if (!player) return '{}';
+    return JSON.stringify(player.bulletOriginOffset, (k,v) => v.toFixed ? Number(v.toFixed(3)) : v, 2);
   }
 
-  refreshFlightEditor() {
-    const p = this.game.player;
-    if (!p) return;
-
+  refreshFlightEditor () {
+    const p = this.game.player; if (!p) return;
     const canFlyToggle = document.getElementById('d-flight-canfly');
     if (canFlyToggle) canFlyToggle.checked = p.flightParams.canFly;
-
     const setSlider = (id, value) => {
-        const slider = document.getElementById(id);
-        const label = document.getElementById(`${id}-v`);
-        if (slider) slider.value = value;
-        if (label) label.textContent = parseFloat(value).toFixed(2);
+      const s = document.getElementById(id); const l = document.getElementById(`${id}-v`);
+      if (s) s.value = value; if (l) l.textContent = parseFloat(value).toFixed(2);
     };
-
     if (p.flightParams.canFly) {
-      setSlider('d-flight-speed', p.flightParams.flySpeed || 10);
-      setSlider('d-flight-ascend', p.flightParams.ascendSpeed || 6);
-      setSlider('d-flight-descend', p.flightParams.descendSpeed || 4);
-      setSlider('d-flight-friction', p.flightParams.flyFriction || 0.92);
+      setSlider('d-flight-speed',   p.flightParams.flySpeed    || 10);
+      setSlider('d-flight-ascend',  p.flightParams.ascendSpeed || 6);
+      setSlider('d-flight-descend', p.flightParams.descendSpeed|| 4);
+      setSlider('d-flight-friction',p.flightParams.flyFriction || 0.92);
     }
   }
 
-  updateBulletOriginExport() {
-      const out = document.getElementById('d-bullet-export');
-      if (out) out.value = `"bulletOriginOffset": ${this.getBulletOriginExportText(this.game.player)}`;
+  updateBulletOriginExport () {
+    const out = document.getElementById('d-bullet-export');
+    if (out) out.value = `"bulletOriginOffset": ${this.getBulletOriginExportText(this.game.player)}`;
   }
 
   _initAimRigEditor () {
     const bind = (id, fn, evt = 'input') => {
-      const el = document.getElementById(id);
-      if (!el) return;
+      const el = document.getElementById(id); if (!el) return;
       el.addEventListener(evt, () => fn(el));
     };
 
     bind('d-aim-enabled', el => {
       const p = this.game.player; if (!p) return;
-      const cfg = p.getAimRigConfig();
-      cfg.enabled = el.checked;
-      p.setAimRigConfig(cfg);
-      this.refreshAimRigEditor();
+      const cfg = p.getAimRigConfig(); cfg.enabled = el.checked;
+      p.setAimRigConfig(cfg); this.refreshAimRigEditor();
     }, 'change');
 
     bind('d-aim-targetdist', el => {
       const p = this.game.player; if (!p) return;
-      const cfg = p.getAimRigConfig();
-      cfg.targetDistance = +el.value;
-      p.setAimRigConfig(cfg);
-      this._syncAimRigValues();
-      this._updateAimRigExport();
+      const cfg = p.getAimRigConfig(); cfg.targetDistance = +el.value;
+      p.setAimRigConfig(cfg); this._syncAimRigValues(); this._updateAimRigExport();
     });
 
     bind('d-aim-firedur', el => {
       const p = this.game.player; if (!p) return;
-      const cfg = p.getAimRigConfig();
-      cfg.firePoseDuration = +el.value;
-      p.setAimRigConfig(cfg);
-      this._syncAimRigValues();
-      this._updateAimRigExport();
+      const cfg = p.getAimRigConfig(); cfg.firePoseDuration = +el.value;
+      p.setAimRigConfig(cfg); this._syncAimRigValues(); this._updateAimRigExport();
     });
 
     bind('d-aim-bone', el => {
-      this._aimBone = el.value;
-      this.refreshAimRigEditor();
+      this._aimBone = el.value; this.refreshAimRigEditor();
     }, 'change');
 
     bind('d-aim-override', el => {
       const p = this.game.player; if (!p) return;
       const cfg = p.getAimRigConfig();
       cfg.bones[this._aimBone].overrideAnimation = el.checked;
-      p.setAimRigConfig(cfg);
-      this.refreshAimRigEditor();
+      p.setAimRigConfig(cfg); this.refreshAimRigEditor();
     }, 'change');
 
-    for (const id of ['d-aim-weight', 'd-fire-weight']) {
+    for (const id of ['d-aim-weight','d-fire-weight']) {
       bind(id, el => {
         const p = this.game.player; if (!p) return;
         const cfg = p.getAimRigConfig();
-        const bone = cfg.bones[this._aimBone];
-        if (!bone) return;
+        const bone = cfg.bones[this._aimBone]; if (!bone) return;
         bone[id === 'd-aim-weight' ? 'aimWeight' : 'fireWeight'] = +el.value;
-        p.setAimRigConfig(cfg);
-        this._syncAimRigValues();
-        this._updateAimRigExport();
+        p.setAimRigConfig(cfg); this._syncAimRigValues(); this._updateAimRigExport();
       });
     }
 
-    for (const id of ['d-aim-rx', 'd-aim-ry', 'd-aim-rz', 'd-fire-rx', 'd-fire-ry', 'd-fire-rz']) {
+    for (const id of ['d-aim-rx','d-aim-ry','d-aim-rz','d-fire-rx','d-fire-ry','d-fire-rz']) {
       bind(id, el => {
         const p = this.game.player; if (!p) return;
         const cfg = p.getAimRigConfig();
-        const bone = cfg.bones[this._aimBone];
-        if (!bone) return;
+        const bone = cfg.bones[this._aimBone]; if (!bone) return;
         const target = id.startsWith('d-fire-') ? bone.firePose : bone.aimPose;
-        const axis = id.endsWith('x') ? 0 : id.endsWith('y') ? 1 : 2;
+        const axis   = id.endsWith('x') ? 0 : id.endsWith('y') ? 1 : 2;
         target[axis] = +el.value;
-        p.setAimRigConfig(cfg);
-        this._syncAimRigValues();
-        this._updateAimRigExport();
+        p.setAimRigConfig(cfg); this._syncAimRigValues(); this._updateAimRigExport();
       });
     }
 
     this._btn2('d-aim-copy', async () => {
       const p = this.game.player; if (!p) return;
       const block = this._getAimRigExportText(p);
-      const out = document.getElementById('d-aim-export');
+      const out   = document.getElementById('d-aim-export');
       if (out) out.value = block;
       try {
         await navigator.clipboard.writeText(block);
@@ -1766,49 +1794,44 @@ class DevPanel {
 
     this._btn2('d-aim-reset-bone', () => {
       const p = this.game.player; if (!p) return;
-      const cfg = p.getAimRigConfig();
+      const cfg      = p.getAimRigConfig();
       const defaults = p._buildAimProfile().bones[this._aimBone];
       if (!defaults) return;
       cfg.bones[this._aimBone] = JSON.parse(JSON.stringify(defaults));
-      p.setAimRigConfig(cfg);
-      this.refreshAimRigEditor();
+      p.setAimRigConfig(cfg); this.refreshAimRigEditor();
     });
   }
 
   _syncAimRigValues () {
-    const p = this.game.player;
+    const p   = this.game.player;
     const cfg = p?.getAimRigConfig();
     if (!cfg) return;
-    const bone = cfg.bones[this._aimBone];
-    if (!bone) return;
+    const bone = cfg.bones[this._aimBone]; if (!bone) return;
 
     const setVal = (id, value, suffix = '') => {
-      const el = document.getElementById(id);
+      const el  = document.getElementById(id);
       const out = document.getElementById(id + '-v');
       if (el) el.value = String(value);
-      if (out) {
-        const n = parseFloat(value);
-        out.textContent = (Number.isInteger(n) ? String(n) : n.toFixed(2)) + suffix;
-      }
+      if (out) { const n = parseFloat(value); out.textContent = (Number.isInteger(n) ? String(n) : n.toFixed(2)) + suffix; }
     };
 
-    const enabled = document.getElementById('d-aim-enabled');
+    const enabled  = document.getElementById('d-aim-enabled');
     const override = document.getElementById('d-aim-override');
-    const boneSel = document.getElementById('d-aim-bone');
-    if (enabled) enabled.checked = !!cfg.enabled;
+    const boneSel  = document.getElementById('d-aim-bone');
+    if (enabled)  enabled.checked  = !!cfg.enabled;
     if (override) override.checked = !!bone.overrideAnimation;
-    if (boneSel) boneSel.value = this._aimBone;
+    if (boneSel)  boneSel.value    = this._aimBone;
 
     setVal('d-aim-targetdist', cfg.targetDistance);
-    setVal('d-aim-firedur', cfg.firePoseDuration, 's');
-    setVal('d-aim-weight', bone.aimWeight);
-    setVal('d-fire-weight', bone.fireWeight);
-    setVal('d-aim-rx', bone.aimPose[0], ' deg');
-    setVal('d-aim-ry', bone.aimPose[1], ' deg');
-    setVal('d-aim-rz', bone.aimPose[2], ' deg');
-    setVal('d-fire-rx', bone.firePose[0], ' deg');
-    setVal('d-fire-ry', bone.firePose[1], ' deg');
-    setVal('d-fire-rz', bone.firePose[2], ' deg');
+    setVal('d-aim-firedur',    cfg.firePoseDuration, 's');
+    setVal('d-aim-weight',     bone.aimWeight);
+    setVal('d-fire-weight',    bone.fireWeight);
+    setVal('d-aim-rx', bone.aimPose[0],  ' deg');
+    setVal('d-aim-ry', bone.aimPose[1],  ' deg');
+    setVal('d-aim-rz', bone.aimPose[2],  ' deg');
+    setVal('d-fire-rx', bone.firePose[0],' deg');
+    setVal('d-fire-ry', bone.firePose[1],' deg');
+    setVal('d-fire-rz', bone.firePose[2],' deg');
   }
 
   _getAimRigExportText (player) {
@@ -1817,39 +1840,34 @@ class DevPanel {
 
   _updateAimRigExport () {
     const out = document.getElementById('d-aim-export');
-    const p = this.game.player;
+    const p   = this.game.player;
     if (!out || !p) return;
     out.value = this._getAimRigExportText(p);
   }
 
   refreshAimRigEditor () {
-    const p = this.game.player;
+    const p      = this.game.player;
     const status = document.getElementById('d-aim-status');
-    const wrap = document.getElementById('d-aim-editor');
+    const wrap   = document.getElementById('d-aim-editor');
     if (!p) {
       if (status) status.textContent = 'No player loaded.';
-      if (wrap) wrap.style.opacity = '0.45';
+      if (wrap)   wrap.style.opacity = '0.45';
       return;
     }
-
-    if (!p.getAimRigConfig().bones[this._aimBone]) {
+    if (!p.getAimRigConfig().bones[this._aimBone])
       this._aimBone = Object.keys(p.getAimRigConfig().bones)[0];
-    }
 
     if (status) status.textContent = `${p.charData.name} - ${this._aimBone.replace('mixamorig', '')}`;
-    if (wrap) wrap.style.opacity = '1';
+    if (wrap)   wrap.style.opacity = '1';
     this._syncAimRigValues();
     this._updateAimRigExport();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   _slider (id, onChange, suffix = '') {
-    const el  = document.getElementById(id);       if (!el) return;
+    const el  = document.getElementById(id); if (!el) return;
     const val = document.getElementById(id + '-v');
-    const fmt = v => {
-      const n = parseFloat(v);
-      return (Number.isInteger(n) ? String(n) : n.toFixed(2)) + suffix;
-    };
+    const fmt = v => { const n = parseFloat(v); return (Number.isInteger(n) ? String(n) : n.toFixed(2)) + suffix; };
     el.addEventListener('input', () => { if (val) val.textContent = fmt(el.value); onChange(el.value); });
     if (val) val.textContent = fmt(el.value);
   }
@@ -1864,7 +1882,7 @@ class DevPanel {
     el.addEventListener('click', onClick);
   }
 
-  // ── Live readout (called every frame) ─────────────────────────────────────
+  // ── Live readout ─────────────────────────────────────────────────────────
   updateReadout (fps) {
     if (!this.visible) return;
 
@@ -1880,12 +1898,11 @@ class DevPanel {
     }
     if (cEl && p) cEl.textContent = p._curClip ?? '—';
 
-    // Animation state strip in Anims tab
     if (p?.mixer) {
-      const cur  = p._clips[p._curClip];
-      const asC  = document.getElementById('as-current'); if (asC) asC.textContent = p._curClip ?? '—';
-      const asT  = document.getElementById('as-time');
-      const asW  = document.getElementById('as-weight');
+      const cur = p._clips[p._curClip];
+      const asC = document.getElementById('as-current'); if (asC) asC.textContent = p._curClip ?? '—';
+      const asT = document.getElementById('as-time');
+      const asW = document.getElementById('as-weight');
       if (cur) {
         if (asT) asT.textContent = cur.time?.toFixed(2) ?? '—';
         if (asW) asW.textContent = cur.getEffectiveWeight()?.toFixed(2) ?? '—';
@@ -1893,9 +1910,9 @@ class DevPanel {
     }
   }
 
-  // ── Animation clips list ───────────────────────────────────────────────────
+  // ── Animation clips list ──────────────────────────────────────────────────
   refreshAnimTab () {
-    const list = document.getElementById('anim-clips-list'); if (!list) return;
+    const list   = document.getElementById('anim-clips-list'); if (!list) return;
     list.innerHTML = '';
     const player = this.game.player;
     if (!player) { list.innerHTML = '<div class="anim-no-clips">No player in scene.</div>'; return; }
@@ -1908,15 +1925,14 @@ class DevPanel {
 
     for (const key of keys) {
       const isPlaying = player._curClip === key;
-      const row = document.createElement('div');
-      row.className = 'anim-clip' + (isPlaying ? ' playing' : '');
-
-      const srcFile = player.charData.animationUrls?.[key]?.split('/').pop() ?? 'embedded';
+      const row       = document.createElement('div');
+      row.className   = 'anim-clip' + (isPlaying ? ' playing' : '');
+      const srcFile   = player.charData.animationUrls?.[key]?.split('/').pop() ?? 'embedded';
 
       row.innerHTML = `
         <div>
           <div class="anim-clip-name">${key}</div>
-          <div class="anim-clip-src">${srcFile}</div>
+          <div class="anim-clip-key">${srcFile}</div>
         </div>
         <button class="anim-play-btn${isPlaying ? ' active' : ''}" data-key="${key}">
           ${isPlaying ? '▶ PLAYING' : '▶ PLAY'}
@@ -1924,7 +1940,7 @@ class DevPanel {
 
       row.querySelector('.anim-play-btn').addEventListener('click', () => {
         player.devPlayClip(key);
-        this.refreshAnimTab(); // re-render to update active highlight
+        this.refreshAnimTab();
       });
 
       list.appendChild(row);
@@ -2031,10 +2047,9 @@ class GameManager {
 
   async _loadCharDB () {
     try {
-      const res = await fetch('./characters.json');
+      const res  = await fetch('./characters.json');
       this.charDB = await res.json();
       console.log(`[GameManager] ${this.charDB.length} characters loaded`);
-
     } catch (e) {
       console.warn('[GameManager] characters.json not found — using defaults');
       this.charDB = _defaultCharDB();
@@ -2072,17 +2087,31 @@ class GameManager {
     this.player.body.position.set(0, 0, 0);
     this.scene.add(this.player);
 
-    // SpringCamera setup
-    this.springCamera = new SpringCamera(this.camera, { smoothing: 0 }); // snappy Battlefront 2 style
+    this.springCamera = new SpringCamera(this.camera, { smoothing: 0 });
 
-    // Async model load — placeholder capsule visible immediately while it loads
+    // Async model load
     this.player.loadModel(this.gltfLoader, this.fbxLoader);
     this.devPanel?.refreshAimRigEditor();
     this.devPanel?.refreshBulletOriginEditor();
     this.devPanel?.refreshFlightEditor();
 
+    // ── Sync Laser Eyes dev panel to character's data ─────────────────────
+    const laserData   = charData.laserEyes;
+    DEV.laserCanUse   = laserData?.canUse   ?? false;
+    DEV.laserColor    = laserData?.color    ?? '#ff0000';
+
+    const laserToggle = document.getElementById('d-laser-canuse');
+    if (laserToggle) laserToggle.checked = DEV.laserCanUse;
+
+    const laserColorPicker = document.getElementById('d-laser-color');
+    if (laserColorPicker) laserColorPicker.value = DEV.laserColor;
+    // ─────────────────────────────────────────────────────────────────────
+
     this.ui.setCharInfo(charData);
-    this.ui.showMessage(`[${charData.name.toUpperCase()}] — press \` to open Dev Panel`, 4000);
+    this.ui.showMessage(
+      `[${charData.name.toUpperCase()}] — [G] Laser Eyes${laserData?.canUse ? ' ✓' : ' (off)'}  \` DevPanel`,
+      5000
+    );
 
     setTimeout(() => document.getElementById('game-canvas')?.requestPointerLock(), 600);
   }
@@ -2091,7 +2120,6 @@ class GameManager {
     requestAnimationFrame(() => this._loop());
     const dt = Math.min(this.clock.getDelta(), 0.05);
 
-    // FPS counter
     this._fpsFrames++;
     this._fpsTimer += dt;
     if (this._fpsTimer >= 0.5) {
@@ -2106,7 +2134,6 @@ class GameManager {
 
   _update (dt) {
     const cols = this.level.colliders;
-
     if (this.player) {
       if (!this.player.isDead) {
         this.player.handleInput(this.input, dt, this.pm);
@@ -2115,7 +2142,6 @@ class GameManager {
         this.player._baseUpdate(dt);
       }
     }
-
     this.pm.update(dt);
     this.ui.update(this.player);
   }
@@ -2130,10 +2156,36 @@ function _defaultCharDB () {
     attack: '/assets/attack.fbx',
     death:  '/assets/death.fbx',
   };
+  const LASER_DEFAULT = { canUse: false, damage: 5, color: '#ff0000', range: 100 };
+
   return [
-    { id:'walter_white', name:'Walter White', modelUrl:'/assets/walter_white.glb', scale:1, color:'#e0e0e0', stats:{speed:5,maxHealth:100,mass:70,jumpForce:8}, animationUrls:ANIMS, defaultWeapon:{type:'ranged',name:'Walther PPK',damage:28,fireRate:.45,range:55,projectileSpeed:32,projectileColor:'#ffee00',projectileSize:.11}, skills:{primary:{name:'Blue Sky Boost',key:'e',cooldown:8},ultimate:{name:'Summon Jesse',key:'q',cooldown:45}} },
-    { id:'t800', name:'T-800 Terminator', modelUrl:'/assets/t800.glb', scale:1.1, color:'#282828', stats:{speed:3.5,maxHealth:350,mass:180,jumpForce:7}, animationUrls:ANIMS, defaultWeapon:{type:'ranged',name:'M134 Minigun',damage:14,fireRate:.08,range:85,projectileSpeed:55,projectileColor:'#ff3300',projectileSize:.07}, skills:{primary:{name:'Plasma Shot',key:'e',cooldown:5},ultimate:{name:'Nuclear Option',key:'q',cooldown:60}} },
-    { id:'mando', name:'The Mandalorian', modelUrl:'/assets/mando.glb', scale:1, color:'#788da0', stats:{speed:6,maxHealth:175,mass:85,jumpForce:11}, animationUrls:ANIMS, defaultWeapon:{type:'ranged',name:'IB-94 Blaster',damage:22,fireRate:.28,range:65,projectileSpeed:42,projectileColor:'#00eeff',projectileSize:.09}, skills:{primary:{name:'Jetpack Dash',key:'e',cooldown:6},ultimate:{name:'Whistling Birds',key:'q',cooldown:30}} },
+    {
+      id:'walter_white', name:'Walter White',
+      modelUrl:'/assets/walter_white.glb', scale:1, color:'#e0e0e0',
+      stats:{speed:5,maxHealth:100,mass:70,jumpForce:8},
+      animationUrls:ANIMS,
+      defaultWeapon:{type:'ranged',name:'Walther PPK',damage:28,fireRate:.45,range:55,projectileSpeed:32,projectileColor:'#ffee00',projectileSize:.11},
+      skills:{primary:{name:'Blue Sky Boost',key:'e',cooldown:8},ultimate:{name:'Summon Jesse',key:'q',cooldown:45}},
+      laserEyes:{ ...LASER_DEFAULT, canUse: true, color: '#00aaff' },
+    },
+    {
+      id:'t800', name:'T-800 Terminator',
+      modelUrl:'/assets/t800.glb', scale:1.1, color:'#282828',
+      stats:{speed:3.5,maxHealth:350,mass:180,jumpForce:7},
+      animationUrls:ANIMS,
+      defaultWeapon:{type:'ranged',name:'M134 Minigun',damage:14,fireRate:.08,range:85,projectileSpeed:55,projectileColor:'#ff3300',projectileSize:.07},
+      skills:{primary:{name:'Plasma Shot',key:'e',cooldown:5},ultimate:{name:'Nuclear Option',key:'q',cooldown:60}},
+      laserEyes:{ ...LASER_DEFAULT, canUse: true, color: '#ff0000' },
+    },
+    {
+      id:'mando', name:'The Mandalorian',
+      modelUrl:'/assets/mando.glb', scale:1, color:'#788da0',
+      stats:{speed:6,maxHealth:175,mass:85,jumpForce:11},
+      animationUrls:ANIMS,
+      defaultWeapon:{type:'ranged',name:'IB-94 Blaster',damage:22,fireRate:.28,range:65,projectileSpeed:42,projectileColor:'#00eeff',projectileSize:.09},
+      skills:{primary:{name:'Jetpack Dash',key:'e',cooldown:6},ultimate:{name:'Whistling Birds',key:'q',cooldown:30}},
+      laserEyes:{ ...LASER_DEFAULT, canUse: false },
+    },
   ];
 }
 
