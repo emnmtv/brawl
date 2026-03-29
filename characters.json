@@ -7,11 +7,20 @@
     "color": "#e0e0e0",
     "stats": { "speed": 5, "maxHealth": 100, "mass": 70, "jumpForce": 8 },
     "animationUrls": {
-      "idle":   "/assets/anims/dance_1.fbx",
+      "idle":   "/assets/anims/idle.fbx",
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
-      "attack": "/assets/anims/punching.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "attack": "/assets/anims/Punching.fbx",
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jumping.fbx",
+      "running_jump": "/assets/anims/Jump.fbx",
+      "float":  "/assets/anims/Floating.fbx",
+      "flying": "/assets/anims/Flying.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.03,
+      "y": 1.43,
+      "z": 2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "Walther PPK",
@@ -25,21 +34,54 @@
     "camera": {
       "camOffset": { "x": 0.52, "y": 1.65, "z": 3.43 },
       "cameraPivotY": 1.03
+    },
+    "aimRig": {
+      "enabled": true,
+      "targetDistance": 50,
+      "firePoseDuration": 0.12,
+      "bones": {
+        "mixamorigRightShoulder": { "aimWeight": 0.35, "fireWeight": 0.45, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightArm": { "aimWeight": 0.6, "fireWeight": 0.7, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightForeArm": { "aimWeight": 0.85, "fireWeight": 1, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightHand": { "aimWeight": 0.4, "fireWeight": 1, "overrideAnimation": true, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] }
+      }
+    },
+    "flight": {
+      "canFly": true,
+      "flySpeed": 10,
+      "ascendSpeed": 6,
+      "descendSpeed": 4,
+      "flyFriction": 0.92
+    },
+    "laserEyes": {
+      "canUse": true,
+      "damage": 5,
+      "color": "#ff0000",
+      "range": 100
     }
   },
   {
     "id": "t800",
     "name": "T-800 Terminator",
     "modelUrl": "/assets/t800.fbx",
-    "scale": 0.02,
+    "scale": 0.04,
     "color": "#282828",
     "stats": { "speed": 3.5, "maxHealth": 350, "mass": 180, "jumpForce": 7 },
     "animationUrls": {
       "idle":   "/assets/anims/idle.fbx",
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
-      "attack": "/assets/anims/rifle_aiming.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "attack": "/assets/anims/Punching.fbx",
+      "float":  "/assets/anims/Floating.fbx",
+      "flying": "/assets/anims/Flying.fbx",
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jumping.fbx",
+      "running_jump": "/assets/anims/Jump.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.03,
+      "y": 1.43,
+      "z": 2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "M134 Minigun",
@@ -53,21 +95,39 @@
     "camera": {
       "camOffset": { "x": 0.7, "y": 1.6, "z": 5.5 },
       "cameraPivotY": 1.6
+    },
+    "aimRig": {
+      "enabled": true,
+      "targetDistance": 65,
+      "firePoseDuration": 0.08,
+      "bones": {
+        "mixamorigRightShoulder": { "aimWeight": 0.4, "fireWeight": 0.5, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightArm": { "aimWeight": 0.7, "fireWeight": 0.82, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightForeArm": { "aimWeight": 0.92, "fireWeight": 1, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightHand": { "aimWeight": 0.5, "fireWeight": 1, "overrideAnimation": true, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] }
+      }
     }
   },
   {
-    "id": "mando",
-    "name": "The Mandalorian",
-    "modelUrl": "/assets/mando.glb",
-    "scale": 1.0,
+    "id": "adolf_hitler",
+    "name": "Adolf Hitler",
+    "modelUrl": "/assets/adolf.fbx",
+    "scale": 0.02,
     "color": "#788da0",
     "stats": { "speed": 6, "maxHealth": 175, "mass": 85, "jumpForce": 11 },
     "animationUrls": {
       "idle":   "/assets/anims/idle.fbx",
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
-      "attack": "/assets/anims/punching.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "attack": "/assets/anims/Punching.fbx",
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jumping.fbx",
+      "running_jump": "/assets/anims/Jump.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.2,
+      "y": 1.3,
+      "z": 0.2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "IB-94 Blaster",
@@ -77,6 +137,17 @@
     "skills": {
       "primary":  { "name": "Jetpack Dash",    "key": "e", "cooldown": 6  },
       "ultimate": { "name": "Whistling Birds", "key": "q", "cooldown": 30 }
+    },
+    "aimRig": {
+      "enabled": true,
+      "targetDistance": 55,
+      "firePoseDuration": 0.1,
+      "bones": {
+        "mixamorigRightShoulder": { "aimWeight": 0.32, "fireWeight": 0.4, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightArm": { "aimWeight": 0.62, "fireWeight": 0.72, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightForeArm": { "aimWeight": 0.88, "fireWeight": 1, "overrideAnimation": false, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] },
+        "mixamorigRightHand": { "aimWeight": 0.45, "fireWeight": 1, "overrideAnimation": true, "aimPose": [0, 0, 0], "firePose": [0, 0, 0] }
+      }
     }
   },
   {
@@ -92,7 +163,14 @@
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
       "attack": "/assets/anims/punching.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jump.fbx",
+      "running_jump": "/assets/anims/Jumping.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.2,
+      "y": 1.3,
+      "z": 0.2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "Assault Rifle",
@@ -114,7 +192,14 @@
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
       "attack": "/assets/anims/punching.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jump.fbx",
+      "running_jump": "/assets/anims/Jumping.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.2,
+      "y": 1.5,
+      "z": 0.3
     },
     "defaultWeapon": {
       "type": "ranged", "name": "Heavy Cannon",
@@ -136,7 +221,14 @@
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
       "attack": "/assets/anims/rifle_aiming.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jump.fbx",
+      "running_jump": "/assets/anims/Jumping.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.2,
+      "y": 1.3,
+      "z": 0.2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "Sniper Rifle",
@@ -158,7 +250,14 @@
       "walk":   "/assets/anims/walking.fbx",
       "run":    "/assets/anims/running.fbx",
       "attack": "/assets/anims/punching.fbx",
-      "death":  "/assets/anims/dying.fbx"
+      "death":  "/assets/anims/dying.fbx",
+      "jump": "/assets/anims/Jump.fbx",
+      "running_jump": "/assets/anims/Jumping.fbx"
+    },
+    "bulletOriginOffset": {
+      "x": -0.2,
+      "y": 1.3,
+      "z": 0.2
     },
     "defaultWeapon": {
       "type": "ranged", "name": "Pistol",

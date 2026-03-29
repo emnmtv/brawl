@@ -240,6 +240,17 @@
     .anim-play-btn:hover{background:rgba(0,245,212,.12);border-color:var(--neon)}
     .anim-play-btn.active{background:rgba(0,245,212,.2);border-color:var(--neon);color:#fff}
     .anim-no-clips{padding:1rem .75rem;font-size:.65rem;color:rgba(200,216,232,.3);text-align:center;letter-spacing:.08em}
+    .dev-select,.dev-codeout{
+      width:calc(100% - 1.5rem);margin:.3rem .75rem;background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--text);
+      font-family:var(--font-mono);font-size:.64rem
+    }
+    .dev-select{padding:.45rem .5rem}
+    .dev-codeout{min-height:148px;padding:.55rem .6rem;resize:vertical;line-height:1.45}
+    .dev-note{padding:.3rem .75rem .5rem;color:rgba(200,216,232,.35);font-size:.58rem;line-height:1.5}
+    .dev-row-wide{display:block;padding:.35rem .75rem;background:var(--dev-row);border-bottom:1px solid rgba(255,255,255,.03)}
+    .dev-row-wide label{display:block;font-size:.62rem;color:rgba(200,216,232,.46);letter-spacing:.08em;margin-bottom:.3rem}
+    .dev-status{padding:.35rem .75rem;color:var(--neon2);font-size:.6rem;letter-spacing:.08em}
 
     /* ─── GAME OVER ─── */
     #game-over{position:fixed;inset:0;z-index:95;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(4,8,15,.95)}
@@ -524,6 +535,27 @@
         </div>
         <button class="dev-btn accent" id="d-reset-cds">↺ Reset All Cooldowns</button>
         <button class="dev-btn warn"   id="d-reset-combat">↺ Reset Combat to Defaults</button>
+
+        <div class="dev-section">Laser Eyes</div>
+        <div class="dev-row-toggle">
+          <div>
+            <label>Enable Laser Eyes</label>
+            <div class="toggle-desc">Hold [G] to fire laser from eyes</div>
+          </div>
+          <label class="dev-switch">
+            <input type="checkbox" id="d-laser-canuse"/>
+            <span class="dev-switch-track"></span>
+          </label>
+        </div>
+        <div class="dev-row">
+          <label>Laser Color</label>
+          <input class="dev-select" type="color" id="d-laser-color" value="#ff0000" style="padding:0; height:20px; width:40px; cursor:pointer;" />
+        </div>
+        <div class="dev-row">
+          <label>Head Bend Mult</label>
+          <input class="dev-slider" type="range" id="d-laser-headbend" min="1" max="3" step="0.1" value="1.5"/>
+          <span class="val" id="d-laser-headbend-v">1.5</span>
+        </div>
       </div>
 
       <!-- ── ANIMATIONS TAB ── -->
@@ -543,6 +575,97 @@
         <div class="dev-section">Loaded Clips</div>
         <div id="anim-clips-list">
           <div class="anim-no-clips">No model loaded yet</div>
+        </div>
+
+        <div class="dev-section">Aim Rig Pose Editor</div>
+        <div class="dev-status" id="d-aim-status">No player loaded.</div>
+        <div id="d-aim-editor">
+          <div class="dev-row-toggle">
+            <div>
+              <label>Enable Aim Rig</label>
+              <div class="toggle-desc">Data-driven right arm and hand override</div>
+            </div>
+            <label class="dev-switch">
+              <input type="checkbox" id="d-aim-enabled" checked/>
+              <span class="dev-switch-track"></span>
+            </label>
+          </div>
+          <div class="dev-row">
+            <label>Target Dist</label>
+            <input class="dev-slider" type="range" id="d-aim-targetdist" min="5" max="120" step="1" value="50"/>
+            <span class="val" id="d-aim-targetdist-v">50</span>
+          </div>
+          <div class="dev-row">
+            <label>Fire Hold</label>
+            <input class="dev-slider" type="range" id="d-aim-firedur" min="0.02" max="0.5" step="0.01" value="0.12"/>
+            <span class="val" id="d-aim-firedur-v">0.12s</span>
+          </div>
+          <div class="dev-row-wide">
+            <label>Bone</label>
+            <select class="dev-select" id="d-aim-bone">
+              <option value="mixamorigRightShoulder">Right Shoulder</option>
+              <option value="mixamorigRightArm">Right Arm</option>
+              <option value="mixamorigRightForeArm">Right ForeArm</option>
+              <option value="mixamorigRightHand">Right Hand</option>
+            </select>
+          </div>
+          <div class="dev-row-toggle">
+            <div>
+              <label>Override Animation</label>
+              <div class="toggle-desc">Ignore the playing clip on this bone while the pose is active</div>
+            </div>
+            <label class="dev-switch">
+              <input type="checkbox" id="d-aim-override"/>
+              <span class="dev-switch-track"></span>
+            </label>
+          </div>
+          <div class="dev-row">
+            <label>Aim Weight</label>
+            <input class="dev-slider" type="range" id="d-aim-weight" min="0" max="1" step="0.01" value="0.4"/>
+            <span class="val" id="d-aim-weight-v">0.40</span>
+          </div>
+          <div class="dev-row">
+            <label>Fire Weight</label>
+            <input class="dev-slider" type="range" id="d-fire-weight" min="0" max="1" step="0.01" value="1"/>
+            <span class="val" id="d-fire-weight-v">1.00</span>
+          </div>
+          <div class="dev-note">Aim pose is always applied while aiming or firing. Fire pose layers on top during the shot window.</div>
+          <div class="dev-row">
+            <label>Aim Rot X</label>
+            <input class="dev-slider" type="range" id="d-aim-rx" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-aim-rx-v">0 deg</span>
+          </div>
+          <div class="dev-row">
+            <label>Aim Rot Y</label>
+            <input class="dev-slider" type="range" id="d-aim-ry" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-aim-ry-v">0 deg</span>
+          </div>
+          <div class="dev-row">
+            <label>Aim Rot Z</label>
+            <input class="dev-slider" type="range" id="d-aim-rz" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-aim-rz-v">0 deg</span>
+          </div>
+          <div class="dev-row">
+            <label>Fire Rot X</label>
+            <input class="dev-slider" type="range" id="d-fire-rx" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-fire-rx-v">0 deg</span>
+          </div>
+          <div class="dev-row">
+            <label>Fire Rot Y</label>
+            <input class="dev-slider" type="range" id="d-fire-ry" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-fire-ry-v">0 deg</span>
+          </div>
+          <div class="dev-row">
+            <label>Fire Rot Z</label>
+            <input class="dev-slider" type="range" id="d-fire-rz" min="-180" max="180" step="1" value="0"/>
+            <span class="val" id="d-fire-rz-v">0 deg</span>
+          </div>
+          <button class="dev-btn warn" id="d-aim-reset-bone">↺ Reset Selected Bone</button>
+          <button class="dev-btn accent" id="d-aim-copy">Copy AimRig JSON</button>
+          <div class="dev-row-wide">
+            <label>Paste This Into characters.json</label>
+            <textarea class="dev-codeout" id="d-aim-export" spellcheck="false"></textarea>
+          </div>
         </div>
 
         <div class="dev-section">Actions</div>
