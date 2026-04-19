@@ -170,14 +170,24 @@ class BaseWeapon {
   tryFire (origin, dir, pm, owner) {
     if (!this.ready) return false;
     this._cd = this.fireRate;
-    pm.spawn(origin, dir, {
+    const cfg = {
       ...this.cfg,
       damage:          this.damage,
       projectileSpeed: DEV.projSpeed ?? this.cfg.projectileSpeed ?? 30,
       projectileSize:  DEV.projSize  ?? this.cfg.projectileSize  ?? 0.1,
       range:           DEV.range     ?? this.cfg.range           ?? 50,
       piercing:        DEV.piercing  || this.cfg.piercing,
-    }, owner);
+    };
+    pm.spawn(origin, dir, cfg, owner);
+    
+    if (owner === 'player' && window.gameManager?.multiplayer) {
+      window.gameManager.multiplayer.sendFire(
+        { x: origin.x, y: origin.y, z: origin.z },
+        { x: dir.x, y: dir.y, z: dir.z },
+        cfg
+      );
+    }
+    
     return true;
   }
 }
@@ -217,12 +227,28 @@ class Projectile {
     this._scene = scene;
   }
 
-  update (dt) {
+  update (dt, targets = []) {
     if (!this.alive) return;
     this.ttl -= dt;
     const mv = this.vel.clone().multiplyScalar(dt);
     this.mesh.position.add(mv);
     this.dist += mv.length();
+
+    // Hit detection
+    for (const t of targets) {
+      if (t === this.owner || t.isDead) continue;
+      const tPos = t.position.clone();
+      tPos.y += 1.0; // Estimate center
+      if (this.mesh.position.distanceTo(tPos) < 0.8) {
+        t.takeDamage(this.damage);
+        if (this.owner === window.gameManager?.player) {
+          window.gameManager?.multiplayer?.sendDamage(t.multiplayerId, this.damage);
+        }
+        if (!this.pierce) this.kill();
+        return;
+      }
+    }
+
     if (this.ttl <= 0 || this.dist >= this.range || this.mesh.position.y < -1) this.kill();
   }
 
@@ -242,9 +268,9 @@ class ProjectileManager {
     this.pool.push(new Projectile(this._scene, origin, dir, cfg, owner));
   }
 
-  update (dt) {
+  update (dt, targets = []) {
     this.pool = this.pool.filter(p => p.alive);
-    this.pool.forEach(p => p.update(dt));
+    this.pool.forEach(p => p.update(dt, targets));
   }
 }
 
@@ -389,6 +415,92 @@ class LaserEyes {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  RIBBON TRAIL
+// ═══════════════════════════════════════════════════════════════════════════════
+class RibbonTrail {
+  constructor (scene, color = '#ffcc00', width = 0.08, maxPoints = 12) {
+    this._scene = scene;
+    this._width = width;
+    this._maxPoints = maxPoints;
+    this._history = [];
+    this._color = new THREE.Color(color);
+
+    this._geom = new THREE.BufferGeometry();
+    this._posAttr = new THREE.BufferAttribute(new Float32Array(maxPoints * 2 * 3), 3);
+    this._geom.setAttribute('position', this._posAttr);
+
+    this._mat = new THREE.MeshBasicMaterial({
+      color: this._color,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    this._mesh = new THREE.Mesh(this._geom, this._mat);
+    this._mesh.frustumCulled = false;
+    this._scene.add(this._mesh);
+    
+    const indices = [];
+    for (let i = 0; i < maxPoints - 1; i++) {
+        indices.push(i*2, i*2+1, i*2+2);
+        indices.push(i*2+1, i*2+3, i*2+2);
+    }
+    this._geom.setIndex(indices);
+  }
+
+  update (dt, pos, quaternion, speed) {
+    if (speed > 8) {
+      // Add "lightning jitter" to the new point
+      const jitter = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3
+      );
+      const finalPos = pos.clone().add(jitter);
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion).multiplyScalar(this._width * 0.5);
+      
+      this._history.unshift({ pos: finalPos, right });
+      if (this._history.length > this._maxPoints) this._history.pop();
+    } else {
+      if (this._history.length > 0) this._history.pop();
+    }
+    
+    // Flickering effect
+    if (this._history.length > 0) {
+        this._mat.opacity = 0.5 + Math.random() * 0.5;
+        this._mat.color.set(Math.random() > 0.1 ? this._color : 0xffffff); // Occasional white flash
+    }
+
+    this._draw();
+  }
+
+  _draw () {
+    const count = this._history.length;
+    if (count < 2) { this._mesh.visible = false; return; }
+    this._mesh.visible = true;
+
+    const posArray = this._posAttr.array;
+    for (let i = 0; i < count; i++) {
+        const { pos, right } = this._history[i];
+        const vL = pos.clone().sub(right);
+        const vR = pos.clone().add(right);
+        posArray[i * 6 + 0] = vL.x; posArray[i * 6 + 1] = vL.y; posArray[i * 6 + 2] = vL.z;
+        posArray[i * 6 + 3] = vR.x; posArray[i * 6 + 4] = vR.y; posArray[i * 6 + 5] = vR.z;
+    }
+    this._posAttr.needsUpdate = true;
+    this._geom.setDrawRange(0, (count - 1) * 6);
+  }
+
+  dispose () {
+    this._scene.remove(this._mesh);
+    this._geom.dispose();
+    this._mat.dispose();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  BASE CHARACTER
 // ═══════════════════════════════════════════════════════════════════════════════
 class BaseCharacter extends THREE.Group {
@@ -410,6 +522,15 @@ class BaseCharacter extends THREE.Group {
     this.weapon = createWeapon(charData.defaultWeapon);
     this.bulletOriginOffset = new THREE.Vector3().copy(charData.bulletOriginOffset || { x: 0, y: 1.4, z: 0.2 });
     this.flightParams = charData.flight ? { ...charData.flight } : { canFly: false };
+
+    // Trail effect - Flash only
+    if (charData.id === 'flash') {
+      this._trail = new RibbonTrail(scene, charData.color || '#ffcc00');
+      this._handTrail = new RibbonTrail(scene, charData.color || '#ffcc00', 0.08, 10);
+    } else {
+      this._trail = null;
+      this._handTrail = null;
+    }
 
     // Animation state
     this.mixer     = null;
@@ -945,11 +1066,31 @@ class BaseCharacter extends THREE.Group {
       if (eff.duration <= 0) this._clearEffect(k);
     }
 
+    const vel = this.body?.velocity || new THREE.Vector3();
+    const speed = new THREE.Vector3(vel.x, 0, vel.z).length();
+
+    // Body trail (slightly off ground)
+    this._trail?.update(dt, this.position.clone().add(new THREE.Vector3(0, 0.2, 0)), this.quaternion, speed);
+
+    // Hand trail (follows right hand bone if available)
+    let handPos = null;
+    if (this._model) {
+      const handBone = this._model.getObjectByName('mixamorigRightHand');
+      if (handBone) {
+        handPos = new THREE.Vector3();
+        handBone.getWorldPosition(handPos);
+      }
+    }
+    this._handTrail?.update(dt, handPos || this.position, this.quaternion, speed);
+
     this.weapon?.update(dt);
     this._tickMixer(dt);
-  }
+    }
 
-  dispose () {
+    dispose () {
+    this._trail?.dispose();
+    this._handTrail?.dispose();
+    this._laserEyes?.dispose();
     this._laserEyes?.dispose();
     this._scene.remove(this);
     this.mixer?.stopAllAction();
@@ -1329,6 +1470,210 @@ class PlayerController extends BaseCharacter {
       // Keep lasers off when dead
       this._laserEyes?.update(false, [], new THREE.Vector3(), DEV.laserColor, 0, dt);
     }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  REMOTE PLAYER CONTROLLER
+// ═══════════════════════════════════════════════════════════════════════════════
+class RemotePlayerController extends BaseCharacter {
+  constructor (charData, scene, id) {
+    super(charData, scene);
+    this.multiplayerId = id;
+    this._targetPos = new THREE.Vector3();
+    this._targetRot = new THREE.Euler();
+    this._lerpFactor = 0.15;
+    
+    this._laserEyes = new LaserEyes(this._scene);
+  }
+
+  sync (state) {
+    if (state.pos) this._targetPos.copy(state.pos);
+    if (state.rot) this._targetRot.set(state.rot.x, state.rot.y, state.rot.z);
+    if (state.anim && this._curClip !== state.anim) this._playClip(state.anim);
+    if (state.health !== undefined) this.health = state.health;
+    if (state.laserActive !== undefined) this._laserActive = state.laserActive;
+    if (state.aimDir) {
+        const dir = new THREE.Vector3(state.aimDir.x, state.aimDir.y, state.aimDir.z);
+        this._setAimState(true, dir, state.rot.y, state.pitch || 0);
+    }
+  }
+
+  update (dt) {
+    // Estimate velocity for trail effects before lerping position
+    const posBefore = this.body.position.clone();
+    this.body.position.lerp(this._targetPos, this._lerpFactor);
+    
+    // velocity = deltaPos / dt
+    this.body.velocity.copy(this.body.position).sub(posBefore).divideScalar(dt || 0.016);
+
+    this._baseUpdate(dt);
+    
+    this.rotation.y = THREE.MathUtils.lerp(this.rotation.y, this._targetRot.y, this._lerpFactor);
+    
+    // Laser eyes
+    const canLaser = this.charData.laserEyes?.canUse ?? false;
+    if (this._laserEyes) {
+        this._laserEyes.update(
+            this._laserActive && canLaser,
+            this._getEyePositions(),
+            this._aimState.dir,
+            this.charData.laserEyes?.color || '#ff0000',
+            this.charData.laserEyes?.range || 100,
+            dt
+        );
+    }
+    
+    this._applyAimRig(dt);
+  }
+
+  _getEyePositions () {
+    const baseY     = this.position.y + 1.72;
+    const charRight = new THREE.Vector3(0.065, 0, 0).applyQuaternion(this.quaternion);
+    const charFwd   = new THREE.Vector3(0, 0, -0.1).applyQuaternion(this.quaternion);
+    const base      = this.position.clone(); base.y = baseY;
+    base.add(charFwd);
+    return [base.clone().sub(charRight), base.clone().add(charRight)];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MULTIPLAYER MANAGER
+// ═══════════════════════════════════════════════════════════════════════════════
+class MultiplayerManager {
+  constructor (game) {
+    this.game = game;
+    this.socket = null;
+    this.id = null;
+    this.remotes = new Map();
+    this.updateInterval = 1/30;
+    this._timer = 0;
+    this._pendingJoinCharId = null;
+  }
+
+  connect (charId, url = 'ws://' + window.location.hostname + ':8080') {
+    this._pendingJoinCharId = charId;
+    this.socket = new WebSocket(url);
+    this.socket.onopen = () => {
+        console.log('[Multiplayer] Connected to server');
+        if (this._pendingJoinCharId) {
+            this.join(this._pendingJoinCharId);
+        }
+    };
+    this.socket.onmessage = (e) => this.onMessage(JSON.parse(e.data));
+    this.socket.onclose = () => console.log('[Multiplayer] Disconnected');
+    this.socket.onerror = (err) => console.error('[Multiplayer] WebSocket Error:', err);
+  }
+
+  join (charId) {
+    console.log('[Multiplayer] Joining with character:', charId);
+    this.send({ type: 'join', charId });
+  }
+
+  send (data) {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(data));
+    } else {
+        console.warn('[Multiplayer] Cannot send, socket not open. State:', this.socket?.readyState);
+    }
+  }
+
+  onMessage (data) {
+    switch (data.type) {
+      case 'init':
+        this.id = data.id;
+        data.players.forEach(p => {
+          if (p.id !== this.id) this.addRemote(p);
+        });
+        break;
+      case 'playerJoined':
+        if (data.player.id !== this.id) this.addRemote(data.player);
+        break;
+      case 'playerUpdate':
+        if (data.id !== this.id) {
+          this.remotes.get(data.id)?.sync(data.state);
+        }
+        break;
+      case 'playerLeft':
+        this.removeRemote(data.id);
+        break;
+      case 'playerFire':
+        if (data.id !== this.id) {
+            const remote = this.remotes.get(data.id);
+            if (remote) {
+                this.game.pm.spawn(
+                    new THREE.Vector3(data.origin.x, data.origin.y, data.origin.z),
+                    new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z),
+                    data.cfg,
+                    remote
+                );
+            }
+        }
+        break;
+      case 'playerDamage':
+        if (data.id === this.id) {
+            this.game.player.takeDamage(0); // Show damage effect
+            this.game.player.health = data.health;
+        } else {
+            const remote = this.remotes.get(data.id);
+            if (remote) remote.health = data.health;
+        }
+        break;
+    }
+  }
+
+  addRemote (data) {
+    const charData = this.game.charDB.find(c => c.id === data.charId);
+    if (!charData) return;
+    const remote = new RemotePlayerController(charData, this.game.scene, data.id);
+    this.remotes.set(data.id, remote);
+    this.game.scene.add(remote);
+    remote.loadModel(this.game.gltfLoader, this.game.fbxLoader);
+    console.log(`[Multiplayer] Added remote player: ${data.id} (${charData.name})`);
+  }
+
+  removeRemote (id) {
+    const remote = this.remotes.get(id);
+    if (remote) {
+      remote.dispose();
+      this.remotes.delete(id);
+      console.log(`[Multiplayer] Removed remote player: ${id}`);
+    }
+  }
+
+  update (dt) {
+    if (!this.id || !this.game.player) return;
+
+    this._timer += dt;
+    if (this._timer >= this.updateInterval) {
+      this._timer = 0;
+      const p = this.game.player;
+      const camDir = new THREE.Vector3();
+      this.game.camera.getWorldDirection(camDir);
+
+      this.send({
+        type: 'update',
+        state: {
+          pos: { x: p.body.position.x, y: p.body.position.y, z: p.body.position.z },
+          rot: { x: p.rotation.x, y: p.rotation.y, z: p.rotation.z },
+          anim: p._curClip,
+          health: p.health,
+          laserActive: p._laserActive,
+          aimDir: { x: camDir.x, y: camDir.y, z: camDir.z },
+          pitch: p._pitch
+        }
+      });
+    }
+
+    this.remotes.forEach(r => r.update(dt));
+  }
+
+  sendFire (origin, dir, cfg) {
+    this.send({ type: 'fire', origin, dir, cfg });
+  }
+
+  sendDamage (targetId, amount) {
+    this.send({ type: 'damage', targetId, amount });
   }
 }
 
@@ -1974,6 +2319,8 @@ class GameManager {
     this._fpsFrames = 0;
     this._fpsTimer  = 0;
 
+    this.multiplayer = new MultiplayerManager(this);
+
     window.gameManager = this;
   }
 
@@ -2089,6 +2436,9 @@ class GameManager {
 
     this.springCamera = new SpringCamera(this.camera, { smoothing: 0 });
 
+    // Multiplayer
+    this.multiplayer.connect(charData.id);
+
     // Async model load
     this.player.loadModel(this.gltfLoader, this.fbxLoader);
     this.devPanel?.refreshAimRigEditor();
@@ -2134,6 +2484,10 @@ class GameManager {
 
   _update (dt) {
     const cols = this.level.colliders;
+
+    // Remote players are targets for projectiles
+    const remoteTargets = Array.from(this.multiplayer.remotes.values());
+
     if (this.player) {
       if (!this.player.isDead) {
         this.player.handleInput(this.input, dt, this.pm);
@@ -2142,7 +2496,9 @@ class GameManager {
         this.player._baseUpdate(dt);
       }
     }
-    this.pm.update(dt);
+
+    this.multiplayer.update(dt);
+    this.pm.update(dt, remoteTargets);
     this.ui.update(this.player);
   }
 }
@@ -2184,6 +2540,15 @@ function _defaultCharDB () {
       animationUrls:ANIMS,
       defaultWeapon:{type:'ranged',name:'IB-94 Blaster',damage:22,fireRate:.28,range:65,projectileSpeed:42,projectileColor:'#00eeff',projectileSize:.09},
       skills:{primary:{name:'Jetpack Dash',key:'e',cooldown:6},ultimate:{name:'Whistling Birds',key:'q',cooldown:30}},
+      laserEyes:{ ...LASER_DEFAULT, canUse: false },
+    },
+    {
+      id:'flash', name:'The Flash',
+      modelUrl:'/assets/flash.fbx', scale:1, color:'#ffcc00',
+      stats:{speed:14,maxHealth:150,mass:75,jumpForce:10},
+      animationUrls:ANIMS,
+      defaultWeapon:{type:'ranged',name:'Speed Force Bolt',damage:20,fireRate:.2,range:40,projectileSpeed:50,projectileColor:'#ffcc00',projectileSize:.1},
+      skills:{primary:{name:'Phase Dash',key:'e',cooldown:4},ultimate:{name:'Speed Force Storm',key:'q',cooldown:40}},
       laserEyes:{ ...LASER_DEFAULT, canUse: false },
     },
   ];

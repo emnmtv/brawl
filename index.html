@@ -262,8 +262,59 @@
 
     body::after{content:'';position:fixed;inset:0;z-index:200;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px)}
   </style>
+  <style>
+    /* Scoreboard Styles */
+    #scoreboard {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 400px;
+      background: rgba(0, 0, 0, 0.85);
+      border: 2px solid #00f5d4;
+      color: #fff;
+      font-family: 'Rajdhani', sans-serif;
+      display: none;
+      flex-direction: column;
+      padding: 20px;
+      z-index: 1000;
+      box-shadow: 0 0 20px rgba(0, 245, 212, 0.3);
+    }
+    #scoreboard h2 {
+      margin: 0 0 15px 0;
+      text-align: center;
+      letter-spacing: 2px;
+      color: #00f5d4;
+    }
+    .sb-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .sb-header {
+      font-weight: bold;
+      border-bottom: 2px solid #00f5d4;
+      color: #ffcc00;
+    }
+    .sb-name { flex: 2; }
+    .sb-kills { flex: 1; text-align: center; }
+    .sb-deaths { flex: 1; text-align: center; }
+  </style>
 </head>
 <body>
+  <div id="scoreboard">
+    <h2>ARENA STANDINGS</h2>
+    <div class="sb-row sb-header">
+      <div class="sb-name">PLAYER</div>
+      <div class="sb-kills">KILLS</div>
+      <div class="sb-deaths">DEATHS</div>
+    </div>
+    <div id="sb-content">
+      <!-- Rows added dynamically -->
+    </div>
+  </div>
+
   <canvas id="game-canvas"></canvas>
 
   <!-- LOADING -->

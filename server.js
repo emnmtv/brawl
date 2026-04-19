@@ -1,107 +1,99 @@
-/**
- * COMBAT OS – WebSocket Game Server
- * Run: node server.js  |  Requires: npm install ws
- */
-const WebSocket = require('ws');
-const PORT = process.env.PORT || 8080;
-const wss  = new WebSocket.Server({ port: PORT });
+const { WebSocketServer } = require('ws');
 
-function uid() { return Math.random().toString(36).slice(2, 9).toUpperCase(); }
-function broadcast(exWs, data) {
-    const msg = JSON.stringify(data);
-    wss.clients.forEach(c => { if (c !== exWs && c.readyState === WebSocket.OPEN) c.send(msg); });
-}
-function send(ws, data) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); }
+const wss = new WebSocketServer({ port: 8080 });
 
-const players    = new Map();  // id → { ws, ready, state }
-const lastHitter = new Map();  // victimId → attackerId (for kill feed)
+const players = new Map();
+
+console.log('Multiplayer server running on ws://localhost:8080');
 
 wss.on('connection', (ws) => {
-    const id = uid();
-    players.set(id, {
-        ws, ready: false,
-        state: { pos:{x:0,y:0,z:0}, rotY:0, health:100, isShooting:false, name:'SPARTAN', modelId:'t800' }
-    });
-    console.log(`[+] ${id} connected  (${players.size} online)`);
+    const id = Math.random().toString(36).substring(2, 9);
+    console.log(`Player connected: ${id}`);
 
-    send(ws, {
-        type: 'init', id,
-        players: [...players.entries()]
-            .filter(([pid, p]) => pid !== id && p.ready)
-            .map(([pid, p]) => ({ id: pid, state: p.state }))
-    });
-
-    ws.on('message', (raw) => {
-        let msg; try { msg = JSON.parse(raw); } catch { return; }
-        switch (msg.type) {
-
-            case 'setName': {
-                const e = players.get(id); if (!e) break;
-                e.state.name    = String(msg.name    || 'SPARTAN').slice(0, 16);
-                e.state.modelId = String(msg.modelId || 't800'   ).slice(0, 32);
-                if (!e.ready) {
-                    e.ready = true;
-                    broadcast(ws, { type: 'join', id, state: e.state });
-                    console.log(`[READY] ${id} → ${e.state.name} (${e.state.modelId})`);
-                } else {
-                    broadcast(ws, { type: 'move', id, state: e.state });
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            
+            if (data.type === 'join') {
+                players.set(id, {
+                    id,
+                    charId: data.charId,
+                    pos: { x: 0, y: 0, z: 0 },
+                    rot: { x: 0, y: 0, z: 0 },
+                    anim: 'idle',
+                    health: 100,
+                    maxHealth: 100,
+                    kills: 0,
+                    deaths: 0,
+                    laserActive: false,
+                    isFiring: false
+                });
+                
+                ws.send(JSON.stringify({ type: 'init', id, players: Array.from(players.values()) }));
+                broadcast({ type: 'playerJoined', player: players.get(id) }, id);
+            }
+            
+            if (data.type === 'update') {
+                const player = players.get(id);
+                if (player) {
+                    Object.assign(player, data.state);
+                    broadcast({ type: 'playerUpdate', id, state: data.state }, id);
                 }
-                break;
             }
 
-            case 'move': {
-                const e = players.get(id);
-                if (e && e.ready) {
-                    e.state = { ...e.state, ...msg.state };
-                    broadcast(ws, { type: 'move', id, state: e.state });
+            if (data.type === 'fire') {
+                broadcast({ type: 'playerFire', id, origin: data.origin, dir: data.dir, cfg: data.cfg }, id);
+            }
+
+            if (data.type === 'damage') {
+                const shooter = players.get(id);
+                const target = players.get(data.targetId);
+                
+                if (target && target.health > 0) {
+                    target.health -= data.amount;
+                    
+                    if (target.health <= 0) {
+                        target.health = 0;
+                        target.deaths++;
+                        if (shooter) shooter.kills++;
+                        
+                        broadcast({ 
+                            type: 'playerDeath', 
+                            id: target.id, 
+                            killerId: id,
+                            scores: Array.from(players.values()).map(p => ({ id: p.id, kills: p.kills, deaths: p.deaths }))
+                        });
+
+                        // Respawn after 3 seconds
+                        setTimeout(() => {
+                            if (players.has(target.id)) {
+                                target.health = target.maxHealth;
+                                broadcast({ type: 'playerRespawn', id: target.id, health: target.health });
+                            }
+                        }, 3000);
+                    } else {
+                        broadcast({ type: 'playerDamage', id: data.targetId, health: target.health, shooterId: id });
+                    }
                 }
-                break;
             }
 
-            case 'hit': {
-                const target = players.get(msg.targetId);
-                if (target) {
-                    lastHitter.set(msg.targetId, id);   // track for kill attribution
-                    send(target.ws, { type: 'damage', from: id, amount: msg.amount });
-                    console.log(`[HIT] ${id} → ${msg.targetId}  ${msg.amount} dmg`);
-                }
-                break;
-            }
-
-            case 'dead': {
-                const e      = players.get(id); if (e) e.state.health = 0;
-                const killer = lastHitter.get(id) || null;
-                lastHitter.delete(id);
-                broadcast(ws, { type: 'dead', id, killerId: killer });
-                console.log(`[DEAD] ${id}  killer: ${killer || '?'}`);
-                break;
-            }
-
-            case 'respawn': {
-                const e = players.get(id);
-                if (e && e.ready) {
-                    e.state.health = 100;
-                    if (msg.modelId) e.state.modelId = String(msg.modelId).slice(0, 32);
-                    broadcast(ws, { type: 'join', id, state: e.state });
-                    console.log(`[RESPAWN] ${id}`);
-                }
-                break;
-            }
+        } catch (e) {
+            console.error('Error processing message:', e);
         }
     });
 
     ws.on('close', () => {
-        players.delete(id); lastHitter.delete(id);
-        broadcast(ws, { type: 'leave', id });
-        console.log(`[-] ${id} disconnected  (${players.size} online)`);
+        console.log(`Player disconnected: ${id}`);
+        players.delete(id);
+        broadcast({ type: 'playerLeft', id });
     });
-    ws.on('error', err => console.error(`[WS ERROR] ${id}:`, err.message));
 });
 
-const os = require('os');
-function getLocalIP() {
-    for (const ifaces of Object.values(os.networkInterfaces()))
-        for (const i of ifaces) if (i.family === 'IPv4' && !i.internal) return i.address;
-    return 'localhost';
+function broadcast(data, excludeId = null) {
+    const msg = JSON.stringify(data);
+    wss.clients.forEach((client) => {
+        if (client.readyState === 1) {
+            client.send(msg);
+        }
+    });
 }
-console.log(`\n🎮  COMBAT OS Server  –  ws://${getLocalIP()}:${PORT}\n`);
